@@ -126,6 +126,7 @@ APPLICATION_DEMO_COLLECTION = {
         }
 
 
+
 # ==========================================
 # CONFIGURATION
 # ==========================================
@@ -145,7 +146,8 @@ engine = create_engine(
         {"check_same_thread": False}
         if "sqlite" in DATABASE_URL
         else {}
-    )
+    ),
+    pool_pre_ping=True
 )
 
 SessionLocal = sessionmaker(
