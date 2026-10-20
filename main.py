@@ -36,11 +36,11 @@ from sqlalchemy.exc import IntegrityError
 
 from models import Base, Position, Application
 
-# added cahnge: Form to JSON
+
 from pydantic import BaseModel, field_validator
 from datetime import date
 from uuid import UUID
-#
+
 
 # ----------------------------------
 # Common demo applications
@@ -124,7 +124,7 @@ APPLICATION_DEMO_COLLECTION = {
 
             ]
         }
-#
+
 
 # ==========================================
 # CONFIGURATION
