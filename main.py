@@ -33,6 +33,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import SQLAlchemyError
 
 from models import Base, Position, Application
 
@@ -854,6 +855,11 @@ def get_demo_application(lang: str = "en"):
 # API: GET POSITIONS
 # ==========================================
 
+
+# ==========================================
+# API: GET POSITIONS
+# ==========================================
+
 @app.get(
     "/api/positions",
     response_model=List[PositionResponse]
@@ -861,10 +867,21 @@ def get_demo_application(lang: str = "en"):
 def get_positions(
     db: Session = Depends(get_db)
 ):
+    try:
+        return db.query(Position).all()
 
-    return db.query(Position).all()
+    except SQLAlchemyError:
+        logging.exception(
+            "Database error while retrieving positions"
+        )
 
-# added
+        raise HTTPException(
+            status_code=503,
+            detail="The database is temporarily unavailable. Please try again later."
+        )
+
+
+
 @app.post(
     "/api/positions",
     response_model=PositionResponse,
@@ -884,9 +901,7 @@ def create_position(
     db.refresh(new_position)
 
     return new_position
-#
 
-# added 
 @app.get(
     "/api/applications",
     response_model=List[ApplicationResponse]
@@ -931,4 +946,3 @@ def get_applications(
         )
         for application, position_name in results
     ]
-#
