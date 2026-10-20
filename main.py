@@ -164,9 +164,6 @@ SessionLocal = sessionmaker(
 
 Base.metadata.create_all(bind=engine)
 
-
-
-
 # ==========================================
 # FASTAPI INITIALIZATION
 # ==========================================
@@ -694,6 +691,93 @@ def update_application_email(
         )
 
 # ==========================================
+# API: CREATE DEMO DATA IF DATABASE IS EMPTY
+# ==========================================
+
+@app.post(
+    "/api/initialize-demo",
+    status_code=status.HTTP_200_OK
+)
+def initialize_demo_data(
+    db: Session = Depends(get_db)
+):
+    try:
+        # Do not overwrite existing data
+        if db.query(Position).first():
+            return {
+                "message": "Database already contains positions. No changes made."
+            }
+
+        demo_positions = [
+            "Senior Backend Developer",
+            "Frontend Engineer",
+            "HR Manager"
+        ]
+
+        positions_by_name = {}
+
+        # Create demo positions
+        for position_name in demo_positions:
+            position = Position(
+                id=str(uuid.uuid4()),
+                pos_name=position_name,
+                is_free=True
+            )
+            db.add(position)
+            positions_by_name[position_name] = position
+
+        db.flush()
+
+        # Create demo applications using the existing collection
+        applications_created = 0
+
+        for language in APPLICATION_DEMO_COLLECTION:
+            for app_data in APPLICATION_DEMO_COLLECTION[language]:
+                app_data = app_data.copy()
+                app_data.pop("lang", None)
+
+                position_name = app_data.pop("position_id")
+                position = positions_by_name.get(position_name)
+
+                if not position:
+                    raise ValueError(
+                        f"Unknown demo position: {position_name}"
+                    )
+
+                db.add(
+                    Application(
+                        id=str(uuid.uuid4()),
+                        app_date=datetime.utcnow(),
+                        position_id=position.id,
+                        **app_data
+                    )
+                )
+
+                applications_created += 1
+
+        # Match the existing demo setup
+        positions_by_name["Frontend Engineer"].is_free = False
+
+        db.commit()
+
+        logging.info("Demo data initialized.")
+
+        return {
+            "message": "Demo data created successfully.",
+            "positions_created": len(demo_positions),
+            "applications_created": applications_created
+        }
+
+    except Exception:
+        db.rollback()
+        logging.exception("Error initializing demo data.")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to initialize demo data."
+        )
+
+# ==========================================
 # API: RESET DEMO DATA
 # ==========================================
 
@@ -850,12 +934,6 @@ def get_demo_application(lang: str = "en"):
 
     return APPLICATION_DEMO_COLLECTION[lang][0]
 
-
-# ==========================================
-# API: GET POSITIONS
-# ==========================================
-
-
 # ==========================================
 # API: GET POSITIONS
 # ==========================================
@@ -879,7 +957,6 @@ def get_positions(
             status_code=503,
             detail="The database is temporarily unavailable. Please try again later."
         )
-
 
 
 @app.post(
