@@ -93,8 +93,11 @@ def show_duplicate_email_notice(
 
 
 
+# Local
+# API_URL = "http://127.0.0.1:8000" 
 
-API_URL = "http://127.0.0.1:8000"
+# Prod
+API_URL = "https://hr-integration-project-swart.vercel.app"
 
 
 st.set_page_config(
