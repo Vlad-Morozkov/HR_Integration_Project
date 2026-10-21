@@ -450,7 +450,7 @@ if mode == t["candidate"]:
 
         response = requests.get(
             f"{API_URL}/api/positions",
-            timeout=5
+            timeout=15
         )
 
         response.raise_for_status()
@@ -796,10 +796,10 @@ else:
                         "full_name_filter"
                     ]
             },
-            timeout=5
+            timeout=10
         )
 
-        #
+        
         response.raise_for_status()
 
 
@@ -822,7 +822,7 @@ else:
             f"{API_URL}/api/applications",
             timeout=5
         )
-        #
+        
         all_applications_response.raise_for_status()
 
         all_applications = all_applications_response.json()
@@ -924,7 +924,7 @@ else:
                             == edited_email_normalized
                         for application in all_applications
                     )
-#
+
                     if duplicate_exists:
                         st.session_state["email_duplicate_active"] = (
                             applications[index]["id"]
