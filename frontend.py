@@ -465,7 +465,7 @@ if mode == t["candidate"]:
                 t["empty_db"]
             )
 
-            if st.button("Create demo data", key="initialize_demo"):
+            if st.button(t["fill_test_data"], key="initialize_demo"):
 
                 try:
                     init_response = requests.post(
@@ -1255,7 +1255,12 @@ else:
 
             available_column = t["available"]
 
-            styled_df = df.style.applymap(
+
+            # old
+            #styled_df = df.style.applymap(
+
+            # actual
+            styled_df = df.style.map(    
                 lambda value: (
                     "color: green; font-weight: bold; font-size: 24px;"
                     if value == "✔" else ""
