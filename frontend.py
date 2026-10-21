@@ -728,7 +728,7 @@ else:
 
     with filter_header_col:
         filters_expanded = st.expander(
-            f" # **{t['filters']}**",
+            f" **{t['filters']}**",
             expanded=False
         )
 
