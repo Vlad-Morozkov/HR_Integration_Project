@@ -164,6 +164,7 @@ TEXTS = {
         "birth_date":            "Birth Date",
         "submit_application":    "Submit Application",
 
+        "empty_db":              "The database is empty. Would you like to create demo data?",
         "success":               "Data submitted successfully.",
         "birth_date_error":      "Birth date cannot be today or in the future.",
         "no_positions":          "No positions available.",
@@ -190,6 +191,8 @@ TEXTS = {
 
         "demo_loaded":           "Demo data loaded successfully.",
         "demo_load_error":       "Could not load demo data.",
+        "demo_load_error_check_connection":
+               "Please check the connection and try again.",
         "no_applications":       "No applications found.",
         "select_one":            "Select one application.",
         "select_only_one":       "Please select only one application.",
@@ -226,7 +229,7 @@ TEXTS = {
 
         "status_new":            "New",
         "status_hired":          "Hired",
-        "status_canceled":       "Canceled"
+        "status_canceled":       "Canceled",
     },
 
     "ru": {
@@ -243,6 +246,7 @@ TEXTS = {
         "birth_date":            "Дата рождения",
         "submit_application":    "Отправить заявку",
 
+        "empty_db":              "База данных пуста. Хотите заполнить demo данными?",
         "success":               "Данные успешно отправлены.",
         "birth_date_error":      "Дата рождения не может быть сегодня или в будущем.",
         "no_positions":          "Нет доступных вакансий.",
@@ -269,6 +273,8 @@ TEXTS = {
 
         "demo_loaded":           "Demo-данные успешно загружены.",
         "demo_load_error":       "Не удалось загрузить Demo-данные.",
+        "demo_load_error_check_connection":
+               "Пожалуйста проверьте соединение и повторите запрос снова.",
         "no_applications":       "Заявки не найдены.",
         "select_one":            "Выберите одну заявку.",
         "select_only_one":       "Пожалуйста, выберите только одну заявку.",
@@ -448,14 +454,45 @@ if mode == t["candidate"]:
 
         positions = response.json()
 
+        #
 
         if not positions:
 
             st.warning(
-                t["no_positions"]
+                t["empty_db"]
             )
 
+            if st.button("Create demo data", key="initialize_demo"):
+
+                try:
+                    init_response = requests.post(
+                        f"{API_URL}/api/initialize-demo",
+                        timeout=15
+                    )
+
+                    init_response.raise_for_status()
+
+                    st.success(
+                        t["demo_loaded"]
+                    )
+
+                    st.rerun()
+
+                except requests.RequestException:
+                    st.error(
+                        t["demo_load_error"] + " "
+                        + t["demo_load_error_check_connection"]
+                    )
+
         else:
+
+        # if not positions:
+
+        #     st.warning(
+        #         t["no_positions"]
+        #     )
+
+        # else:
 
             available_positions = [
                 position
