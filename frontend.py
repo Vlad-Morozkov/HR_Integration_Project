@@ -108,7 +108,11 @@ def show_duplicate_email_notice(
 API_URL = "http://127.0.0.1:8000" 
 
 # Prod
+<<<<<<< Updated upstream
 #API_URL = "https://hr-integration-project-swart.vercel.app"
+=======
+# API_URL = "https://hr-integration-project-swart.vercel.app"
+>>>>>>> Stashed changes
 
 
 st.set_page_config(
@@ -210,6 +214,7 @@ TEXTS = {
         "candidate":             "Candidate",
         "hr":                    "HR",
         "fill_test_data":        "Fill with test data",
+        "clear_fields":          "Clear fields",
         "position":              "Position",
         "full_name":             "Full Name",
         "email":                 "Email",
@@ -222,6 +227,7 @@ TEXTS = {
         "success":               "Data submitted successfully.",
         "fill_birth_date":       "Fill birth date field",
         "birth_date_error":      "Birth date cannot be today or in the future.",
+        "empty_bdate_field":     "Fill birth date field.",
         "no_positions":          "No positions available.",
         "connection_error":      "Could not connect to the HR system.",
         "duplicate_application": "You have already applied for this position.",
@@ -293,6 +299,7 @@ TEXTS = {
         "candidate":             "Кандидат",
         "hr":                    "HR",
         "fill_test_data":        "Заполнить Demo данными",
+        "clear_fields":          "Очистить поля",
         "position":              "Должность",
         "full_name":             "ФИО",
         "email":                 "Email",
@@ -305,6 +312,7 @@ TEXTS = {
         "success":               "Данные успешно отправлены.",
         "fill_birth_date":       "Заполните дату рождения",
         "birth_date_error":      "Дата рождения не может быть сегодня или в будущем.",
+        "empty_bdate_field":     "Заполните дату рождения.",
         "no_positions":          "Нет доступных вакансий.",
         "connection_error":      "Не удалось подключиться к системе найма.",
         "duplicate_application": "Вы уже подавали заявку на эту должность.",
@@ -442,6 +450,7 @@ mode = selected_mode
 
 
 # =========================================================
+<<<<<<< Updated upstream
 # RESTORE CANDIDATE FORM STATE
 # =========================================================
 
@@ -452,6 +461,25 @@ if st.session_state["mode"] == "Candidate":
     for field_key in CANDIDATE_FIELD_KEYS:
         if field_key not in st.session_state:
             st.session_state[field_key] = form_data[field_key]
+=======
+# CANDIDATE FORM STATE (постоянное хранилище введённых данных)
+# =========================================================
+
+# Эти ключи НЕ привязаны к виджетам, поэтому Streamlit
+# не удаляет их при смене языка или скрытии формы.
+if "store_full_name" not in st.session_state:
+    st.session_state["store_full_name"] = ""
+if "store_email" not in st.session_state:
+    st.session_state["store_email"] = ""
+if "store_educ" not in st.session_state:
+    st.session_state["store_educ"] = ""
+if "store_experience" not in st.session_state:
+    st.session_state["store_experience"] = ""
+if "store_birth_date" not in st.session_state:
+    st.session_state["store_birth_date"] = date.today()
+if "store_position_id" not in st.session_state:
+    st.session_state["store_position_id"] = None
+>>>>>>> Stashed changes
 
 
 # =========================================================
@@ -462,6 +490,7 @@ if mode == t["candidate"]:
 
     st.header(t["candidate"])
 
+<<<<<<< Updated upstream
     # -----------------------------------------
     # Clear candidate form after successful submission
     # -----------------------------------------
@@ -482,11 +511,54 @@ if mode == t["candidate"]:
 
         st.session_state["clear_candidate_form"] = False
 
+=======
+>>>>>>> Stashed changes
     # -----------------------------------------------------
-    # Fill demo data
+    # Fill demo data + Clear fields
     # -----------------------------------------------------
 
-    if st.button(t["fill_test_data"]): 
+    col_fill, col_clear = st.columns(
+        [0.2, 0.8],
+        vertical_alignment="bottom"
+    )
+
+    with col_fill:
+        fill_clicked = st.button(
+            t["fill_test_data"],
+            key="fill_demo_candidate"
+        )
+
+    with col_clear:
+        clear_label = (t["clear_fields"])
+        clear_clicked = st.button(
+            clear_label,
+            key="clear_candidate_fields"
+        )
+
+    if clear_clicked:
+
+        # Очистка постоянного хранилища (должность НЕ трогаем)
+        st.session_state["store_full_name"] = ""
+        st.session_state["store_email"] = ""
+        st.session_state["store_educ"] = ""
+        st.session_state["store_experience"] = ""
+        st.session_state["store_birth_date"] = date.today()
+
+        # Удаление ключей виджетов (все языки)
+        prefixes = (
+            "widget_full_name_",
+            "widget_email_",
+            "widget_educ_",
+            "widget_experience_",
+            "widget_birth_date_",
+        )
+        for k in list(st.session_state.keys()):
+            if k.startswith(prefixes):
+                del st.session_state[k]
+
+        st.rerun()
+
+    if fill_clicked:
 
         response = requests.get(
             f"{API_URL}/api/demo-application",
@@ -498,26 +570,12 @@ if mode == t["candidate"]:
 
             demo_data = response.json()
 
-            st.session_state["full_name"] = (
-                demo_data["full_name"]
-            )
-
-            st.session_state["email"] = (
-                demo_data["email"]
-            )
-
-            st.session_state["educ"] = (
-                demo_data["educ"]
-            )
-
-            st.session_state["experience"] = (
-                demo_data["experience"]
-            )
-
-            st.session_state["birth_date"] = (
-                date.fromisoformat(
-                    demo_data["birth_date"]
-                )
+            st.session_state["store_full_name"] = demo_data["full_name"]
+            st.session_state["store_email"] = demo_data["email"]
+            st.session_state["store_educ"] = demo_data["educ"]
+            st.session_state["store_experience"] = demo_data["experience"]
+            st.session_state["store_birth_date"] = date.fromisoformat(
+                demo_data["birth_date"]
             )
 
 
@@ -536,7 +594,6 @@ if mode == t["candidate"]:
                 f"Error code: {response.status_code}"
             )
 
-
     # -----------------------------------------------------
     # Load positions
     # -----------------------------------------------------
@@ -552,13 +609,9 @@ if mode == t["candidate"]:
 
         positions = response.json()
 
-        #
-
         if not positions:
 
-            st.warning(
-                t["empty_db"]
-            )
+            st.warning(t["empty_db"])
 
             if st.button(t["fill_test_data"], key="initialize_demo"):
 
@@ -570,9 +623,7 @@ if mode == t["candidate"]:
 
                     init_response.raise_for_status()
 
-                    st.success(
-                        t["demo_loaded"]
-                    )
+                    st.success(t["demo_loaded"])
 
                     st.rerun()
 
@@ -584,37 +635,40 @@ if mode == t["candidate"]:
 
         else:
 
-        # if not positions:
-
-        #     st.warning(
-        #         t["no_positions"]
-        #     )
-
-        # else:
-
             available_positions = [
                 position
                 for position in positions
                 if position["is_free"]
             ]
 
-
             if not available_positions:
 
-                st.warning(
-                    t["no_positions"]
-                )
+                st.warning(t["no_positions"])
 
             else:
+
+                # Индекс сохранённой должности в текущем списке
+                position_ids = [p["id"] for p in available_positions]
+
+                if st.session_state["store_position_id"] in position_ids:
+                    pos_index = position_ids.index(
+                        st.session_state["store_position_id"]
+                    )
+                else:
+                    pos_index = 0
 
                 selected_position = st.selectbox(
                     t["position"],
                     available_positions,
-                    format_func=lambda position:
-                        position["pos_name"]
+                    index=pos_index,
+                    format_func=lambda position: position["pos_name"],
+                    key=f"widget_position_{lang}"
                 )
 
+                selected_position_id = selected_position["id"]
+                st.session_state["store_position_id"] = selected_position_id
 
+<<<<<<< Updated upstream
                 selected_position_id = (
                     selected_position["id"]
                 )
@@ -647,12 +701,70 @@ if mode == t["candidate"]:
                     key="experience",
                     on_change=save_candidate_field,
                     args=("experience",)
-                )
+=======
+                # -----------------------------------------
+                # Поля формы.
+                # value берётся из постоянного хранилища,
+                # а key зависит от языка — это заставляет
+                # Streamlit перерисовать поле с сохранённым
+                # значением при смене языка.
+                # -----------------------------------------
 
+                st.text_input(
+                    t["full_name"],
+                    value=st.session_state["store_full_name"],
+                    key=f"widget_full_name_{lang}"
+                )
+                st.session_state["store_full_name"] = st.session_state[
+                    f"widget_full_name_{lang}"
+                ]
+
+                st.text_input(
+                    t["email"],
+                    value=st.session_state["store_email"],
+                    key=f"widget_email_{lang}"
+                )
+                st.session_state["store_email"] = st.session_state[
+                    f"widget_email_{lang}"
+                ]
+
+                st.text_input(
+                    t["education"],
+                    value=st.session_state["store_educ"],
+                    key=f"widget_educ_{lang}"
+                )
+                st.session_state["store_educ"] = st.session_state[
+                    f"widget_educ_{lang}"
+                ]
+
+                st.text_input(
+                    t["experience"],
+                    value=st.session_state["store_experience"],
+                    key=f"widget_experience_{lang}"
+>>>>>>> Stashed changes
+                )
+                st.session_state["store_experience"] = st.session_state[
+                    f"widget_experience_{lang}"
+                ]
+
+                birth_date_widget_key = f"widget_birth_date_{lang}"
+
+                # Инициализация ключа виджета из хранилища —
+                # только если ключа ещё нет (первый показ или смена языка)
+                if birth_date_widget_key not in st.session_state:
+                    st.session_state[birth_date_widget_key] = (
+                        st.session_state["store_birth_date"]
+                    )
+
+                def _sync_birth_date():
+                    st.session_state["store_birth_date"] = (
+                        st.session_state[birth_date_widget_key]
+                    )
 
 
                 st.date_input(
                     t["birth_date"],
+<<<<<<< Updated upstream
                     key="birth_date",
                     on_change=save_candidate_field,
                     args=("birth_date",)
@@ -672,12 +784,42 @@ if mode == t["candidate"]:
 
                 # if birth_date_error:
                 #     st.error(birth_date_error)
+=======
+                    key=birth_date_widget_key,
+                    on_change=_sync_birth_date,
+                    format="DD/MM/YYYY"
+                )
 
+                # -----------------------------------------
+                # Birth date validation
+                # (сегодняшняя дата разрешена, > сегодня — ошибка)
+                # -----------------------------------------
+
+                birth_date_invalid = (
+                    st.session_state["store_birth_date"] is None
+                    or st.session_state["store_birth_date"] > date.today()
+                )
+
+                if st.session_state["store_birth_date"] is None:
+
+                    st.error (t["empty_bdate_field"])
+
+                elif birth_date_invalid:
+
+                    st.markdown(
+                        f'<p style="color:red;">'
+                        f'{t["birth_date_error"]}'
+                        f'</p>',
+                        unsafe_allow_html=True
+                    )
+>>>>>>> Stashed changes
 
                 # -----------------------------------------
                 # Submit application
+                # Кнопка блокируется, пока дата некорректна.
                 # -----------------------------------------
 
+<<<<<<< Updated upstream
                 if st.session_state.get("show_submission_success", False):
                     st.success(t["success"])
                     st.session_state["show_submission_success"] = False
@@ -691,60 +833,105 @@ if mode == t["candidate"]:
 
                     if birth_date_error:
                         st.error(birth_date_error)
+=======
+                if st.button(
+                    t["submit_application"],
+                    disabled=birth_date_invalid
+                ):
+
+                    required_fields = {
+                        "store_full_name": t["full_name"],
+                        "store_email": t["email"],
+                        "store_educ": t["education"],
+                        "store_experience": t["experience"],
+                    }
+
+                    empty_field = None
+
+                    for field_key, field_name in required_fields.items():
+
+                        if not st.session_state[field_key].strip():
+                            empty_field = field_name
+                            break
+
+                    if empty_field:
+
+                        st.error(
+                            t["fill_field"].format(
+                                field_name=empty_field
+                            )
+                        )
+
+                    elif not re.fullmatch(
+                        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                        st.session_state["store_email"].strip()
+                    ):
+
+                        st.error(t["invalid_email"])
+>>>>>>> Stashed changes
 
                     else:
 
-                        # Common required-field validation
-                        required_fields = {
-                            "full_name": t["full_name"],
-                            "email": t["email"],
-                            "educ": t["education"],
-                            "experience": t["experience"],
+                        application_data = {
+                            "position_id": selected_position_id,
+                            "educ": st.session_state["store_educ"],
+                            "experience": st.session_state["store_experience"],
+                            "full_name": st.session_state["store_full_name"],
+                            "email": st.session_state["store_email"],
+                            "birth_date": st.session_state[
+                                "store_birth_date"
+                            ].isoformat()
                         }
 
-                        empty_field = None
+                        response = requests.post(
+                            f"{API_URL}/api/applications",
+                            json=application_data,
+                            timeout=5
+                        )
 
-                        for field_key, field_name in required_fields.items():
+                        if response.status_code == 201:
 
-                            if not st.session_state[field_key].strip():
-                                empty_field = field_name
-                                break
+                            # Флаг покажет уведомление ПОСЛЕ перезапуска
+                            st.session_state["show_success"] = True
 
+                            # Очистка постоянного хранилища
+                            st.session_state["store_full_name"] = ""
+                            st.session_state["store_email"] = ""
+                            st.session_state["store_educ"] = ""
+                            st.session_state["store_experience"] = ""
+                            st.session_state["store_birth_date"] = date.today()
 
-                        if empty_field:
-
-                            st.error(
-                                t["fill_field"].format(
-                                    field_name=empty_field
-                                )
+                            # Удаление ключей виджетов (все языки),
+                            # чтобы поля перерисовались пустыми
+                            prefixes = (
+                                "widget_full_name_",
+                                "widget_email_",
+                                "widget_educ_",
+                                "widget_experience_",
+                                "widget_birth_date_",
                             )
+                            for k in list(st.session_state.keys()):
+                                if k.startswith(prefixes):
+                                    del st.session_state[k]
 
-                        elif not re.fullmatch(
-                            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-                            st.session_state["email"].strip()
-                        ):
+                            st.rerun()
 
-                            st.error(t["invalid_email"])
+                        elif response.status_code == 409:
+
+                            st.error(t["duplicate_application"])
+
+                        elif response.status_code == 422:
+
+                            st.error(t["submit_error"])
 
                         else:
 
-                            application_data = {
-                                "position_id": selected_position_id,
-                                "educ": st.session_state["educ"],
-                                "experience": st.session_state["experience"],
-                                "full_name": st.session_state["full_name"],
-                                "email": st.session_state["email"],
-                                "birth_date": st.session_state[
-                                    "birth_date"
-                                ].isoformat()
-                            }
-
-                            response = requests.post(
-                                f"{API_URL}/api/applications",
-                                json=application_data,
-                                timeout=5
+                            st.error(
+                                f'{t["submit_error"]} '
+                                f'Error code: {response.status_code}.'
                             )
 
+<<<<<<< Updated upstream
                             # if response.status_code == 201:
 
                             #     st.success(t["success"])
@@ -776,13 +963,15 @@ if mode == t["candidate"]:
                                 )
 
 
+=======
+                # Показ уведомления об успешной отправке после перезапуска
+                if st.session_state.pop("show_success", False):
+                    st.success(t["success"])
+>>>>>>> Stashed changes
 
     except requests.RequestException:
 
-        st.error(
-            t["connection_error"]
-        )
-
+        st.error(t["connection_error"])
 
 # =========================================================
 # HR MODE
