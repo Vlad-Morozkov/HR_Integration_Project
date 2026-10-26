@@ -597,7 +597,7 @@ if mode == t["candidate"]:
                     t["birth_date"],
                     key=birth_date_widget_key,
                     on_change=_sync_birth_date,
-                    format="DD/MM/YYYY"
+                    format="DD/MM/YYYY",
                     min_value=date(1900, 1, 1),   # нижняя граница
                     max_value=date.today()        # будущие даты выбрать нельзя
                 )
