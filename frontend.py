@@ -14,8 +14,6 @@ import streamlit.components.v1 as components
 
 
 
-
-
 def show_duplicate_email_notice(
     message_template,
     email,
@@ -600,6 +598,8 @@ if mode == t["candidate"]:
                     key=birth_date_widget_key,
                     on_change=_sync_birth_date,
                     format="DD/MM/YYYY"
+                    min_value=date(1900, 1, 1),   # нижняя граница
+                    max_value=date.today()        # будущие даты выбрать нельзя
                 )
 
                 # -----------------------------------------
