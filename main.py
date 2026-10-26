@@ -321,7 +321,7 @@ def normalize_email(email: str) -> str:
     Normalize email for consistent duplicate checking.
     """
     return email.strip().lower() 
-    # Функция которая нормализует имэй, чтоб при проверке не было сложностей 
+    # Функция которая нормализует имэйл, чтоб при проверке не было сложностей 
     # с заглавными буквами - всё нормализуется до строчных
 
 

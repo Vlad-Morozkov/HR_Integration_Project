@@ -13,8 +13,19 @@ import html
 import json
 import streamlit.components.v1 as components
 
+#
+# Birth date validation
+#
 
+def validate_birth_date(birth_date, translations):
+    """Return an error message if the birth date is invalid."""
+    if birth_date is None:
+        return translations["fill_birth_date"]
 
+    if birth_date >= date.today():
+        return translations["birth_date_error"]
+
+    return None
 
 
 def show_duplicate_email_notice(
@@ -94,10 +105,10 @@ def show_duplicate_email_notice(
 
 
 # Local
-# API_URL = "http://127.0.0.1:8000" 
+API_URL = "http://127.0.0.1:8000" 
 
 # Prod
-API_URL = "https://hr-integration-project-swart.vercel.app"
+#API_URL = "https://hr-integration-project-swart.vercel.app"
 
 
 st.set_page_config(
@@ -106,6 +117,45 @@ st.set_page_config(
 )
 
 
+
+# =========================================================
+# PERSISTENT CANDIDATE FORM DATA
+# =========================================================
+
+CANDIDATE_FIELD_KEYS = [
+    "full_name",
+    "email",
+    "educ",
+    "experience",
+    "birth_date",
+]
+
+if "candidate_form_data" not in st.session_state:
+    st.session_state["candidate_form_data"] = {
+        "full_name": "",
+        "email": "",
+        "educ": "",
+        "experience": "",
+        "birth_date": None,
+    }
+
+
+def save_candidate_form_state():
+    """Save candidate values before switching languages or modes."""
+
+    form_data = st.session_state["candidate_form_data"]
+
+    for field_key in CANDIDATE_FIELD_KEYS:
+        if field_key in st.session_state:
+            form_data[field_key] = st.session_state[field_key]
+
+
+
+def save_candidate_field(field_key):
+    """Save an individual candidate field when it changes."""
+    st.session_state["candidate_form_data"][field_key] = (
+        st.session_state[field_key]
+    )
 
 
 # =========================================================
@@ -141,7 +191,8 @@ with col_language:
         "Language",
         LANGUAGES,
         label_visibility    ="collapsed",
-        key                 ="language_selector"
+        key                 ="language_selector",
+        on_change=save_candidate_form_state
     )
 
 lang = "ru" if language == "Русский" else "en"
@@ -169,6 +220,7 @@ TEXTS = {
 
         "empty_db":              "The database is empty. Would you like to create demo data?",
         "success":               "Data submitted successfully.",
+        "fill_birth_date":       "Fill birth date field",
         "birth_date_error":      "Birth date cannot be today or in the future.",
         "no_positions":          "No positions available.",
         "connection_error":      "Could not connect to the HR system.",
@@ -251,6 +303,7 @@ TEXTS = {
 
         "empty_db":              "База данных пуста. Хотите заполнить demo данными?",
         "success":               "Данные успешно отправлены.",
+        "fill_birth_date":       "Заполните дату рождения",
         "birth_date_error":      "Дата рождения не может быть сегодня или в будущем.",
         "no_positions":          "Нет доступных вакансий.",
         "connection_error":      "Не удалось подключиться к системе найма.",
@@ -330,6 +383,7 @@ t = TEXTS[lang]
 st.title(t["title"])
 
 
+
 # =========================================================
 # MODE
 # =========================================================
@@ -352,7 +406,9 @@ selected_mode = st.radio(
         if st.session_state["mode"] == "Candidate"
         else 1
     ),
-    horizontal=True
+    horizontal=True,
+    key="mode_selector",
+    on_change=save_candidate_form_state
 )
 
 
@@ -365,24 +421,37 @@ else:
 mode = selected_mode
 
 
+# # =========================================================
+# # CANDIDATE FORM STATE
+# # =========================================================
+
+# if "full_name" not in st.session_state:
+#     st.session_state["full_name"] = ""
+
+# if "email" not in st.session_state:
+#     st.session_state["email"] = ""
+
+# if "educ" not in st.session_state:
+#     st.session_state["educ"] = ""
+
+# if "experience" not in st.session_state:
+#     st.session_state["experience"] = ""
+
+# if "birth_date" not in st.session_state:
+#     st.session_state["birth_date"] = date.today()
+
+
 # =========================================================
-# CANDIDATE FORM STATE
+# RESTORE CANDIDATE FORM STATE
 # =========================================================
 
-if "full_name" not in st.session_state:
-    st.session_state["full_name"] = ""
+if st.session_state["mode"] == "Candidate":
 
-if "email" not in st.session_state:
-    st.session_state["email"] = ""
+    form_data = st.session_state["candidate_form_data"]
 
-if "educ" not in st.session_state:
-    st.session_state["educ"] = ""
-
-if "experience" not in st.session_state:
-    st.session_state["experience"] = ""
-
-if "birth_date" not in st.session_state:
-    st.session_state["birth_date"] = date.today()
+    for field_key in CANDIDATE_FIELD_KEYS:
+        if field_key not in st.session_state:
+            st.session_state[field_key] = form_data[field_key]
 
 
 # =========================================================
@@ -393,6 +462,25 @@ if mode == t["candidate"]:
 
     st.header(t["candidate"])
 
+    # -----------------------------------------
+    # Clear candidate form after successful submission
+    # -----------------------------------------
+
+    if st.session_state.get("clear_candidate_form", False):
+
+        empty_values = {
+            "full_name": "",
+            "email": "",
+            "educ": "",
+            "experience": "",
+            "birth_date": None,
+        }
+
+        for field_key, value in empty_values.items():
+            st.session_state[field_key] = value
+            st.session_state["candidate_form_data"][field_key] = value
+
+        st.session_state["clear_candidate_form"] = False
 
     # -----------------------------------------------------
     # Fill demo data
@@ -431,6 +519,13 @@ if mode == t["candidate"]:
                     demo_data["birth_date"]
                 )
             )
+
+
+            # Save demo values to persistent candidate data
+            for field_key in CANDIDATE_FIELD_KEYS:
+                st.session_state["candidate_form_data"][field_key] = (
+                    st.session_state[field_key]
+                )
 
             st.rerun()
 
@@ -524,67 +619,78 @@ if mode == t["candidate"]:
                     selected_position["id"]
                 )
 
-
+                #
+                
                 st.text_input(
                     t["full_name"],
-                    key="full_name"
+                    key="full_name",
+                    on_change=save_candidate_field,
+                    args=("full_name",)
                 )
-
 
                 st.text_input(
                     t["email"],
-                    key="email"
+                    key="email",
+                    on_change=save_candidate_field,
+                    args=("email",)
                 )
-
 
                 st.text_input(
                     t["education"],
-                    key="educ"
+                    key="educ",
+                    on_change=save_candidate_field,
+                    args=("educ",)
                 )
-
 
                 st.text_input(
                     t["experience"],
-                    key="experience"
+                    key="experience",
+                    on_change=save_candidate_field,
+                    args=("experience",)
                 )
+
 
 
                 st.date_input(
                     t["birth_date"],
-                    key="birth_date"
+                    key="birth_date",
+                    on_change=save_candidate_field,
+                    args=("birth_date",)
                 )
 
+                # st.date_input(
+                #     t["birth_date"],
+                #     key="birth_date"
+                # )
 
-                # -----------------------------------------
-                # Birth date validation
-                # -----------------------------------------
+                # # add one call func validation
+                # # Validate birth date whenever the app reruns
+                # birth_date_error = validate_birth_date(
+                #     st.session_state.get("birth_date"),
+                #     t
+                # )
 
-                if st.session_state["birth_date"] is None:
-
-                    st.error("Fill birth date field.")
-
-                elif st.session_state["birth_date"] >= date.today():
-
-                    st.markdown(
-                        f'<p style="color:red;">'
-                        f'{t["birth_date_error"]}'
-                        f'</p>',
-                        unsafe_allow_html=True
-                    )
+                # if birth_date_error:
+                #     st.error(birth_date_error)
 
 
                 # -----------------------------------------
                 # Submit application
                 # -----------------------------------------
 
+                if st.session_state.get("show_submission_success", False):
+                    st.success(t["success"])
+                    st.session_state["show_submission_success"] = False
+
                 if st.button(t["submit_application"]):
 
-                    if (
-                        st.session_state["birth_date"]
-                        >= date.today()
-                    ):
+                    birth_date_error = validate_birth_date(
+                        st.session_state.get("birth_date"),
+                        t
+                    )
 
-                        st.error(t["birth_date_error"])
+                    if birth_date_error:
+                        st.error(birth_date_error)
 
                     else:
 
@@ -639,9 +745,15 @@ if mode == t["candidate"]:
                                 timeout=5
                             )
 
-                            if response.status_code == 201:
+                            # if response.status_code == 201:
 
-                                st.success(t["success"])
+                            #     st.success(t["success"])
+
+                            if response.status_code == 201:
+                                # Clear the form and show the success message after rerun
+                                st.session_state["clear_candidate_form"] = True
+                                st.session_state["show_submission_success"] = True
+                                st.rerun()     
 
                             elif response.status_code == 409:
 
