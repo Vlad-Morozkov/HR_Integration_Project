@@ -3,9 +3,10 @@ import requests
 import re
 import pandas as pd
 
+# added streamlit_calendar
+from streamlit_calendar import calendar
 
-
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 
 import html
@@ -91,10 +92,10 @@ def show_duplicate_email_notice(
 
 
 # Local
-# API_URL = "http://127.0.0.1:8000" 
+API_URL = "http://127.0.0.1:8000" 
 
 # Prod
-API_URL = "https://hr-integration-project-swart.vercel.app"
+# API_URL = "https://hr-integration-project-swart.vercel.app"
 
 
 st.set_page_config(
@@ -148,6 +149,11 @@ TEXTS = {
         "mode":                  "Select mode",
         "candidate":             "Candidate",
         "hr":                    "HR",
+
+        #----------
+        # Candidate Mode
+        #----------
+
         "fill_test_data":        "Fill with test data",
         "clear_fields":          "Clear fields",
         "position":              "Position",
@@ -157,6 +163,10 @@ TEXTS = {
         "experience":            "Experience",
         "birth_date":            "Birth Date",
         "submit_application":    "Submit Application",
+     
+        #----------
+        # Notiffications
+        #----------
 
         "empty_db":              "The database is empty. Would you like to create demo data?",
         "success":               "Data submitted successfully.",
@@ -166,6 +176,10 @@ TEXTS = {
         "connection_error":      "Could not connect to the HR system.",
         "duplicate_application": "You have already applied for this position.",
         "invalid_email":         "Please enter a valid email address.",
+
+        #----------
+        # HR Mode
+        #----------
 
         "refresh":               "Refresh",
         "filters":               "Filters",
@@ -178,11 +192,21 @@ TEXTS = {
         "new_position":          "New Position",
         "add_position":          "Add Position",
 
+        #----------
+        # Notiffications
+        #----------
+
         "position_empty":        "Position name cannot be empty.",
         "position_added":        "Position added successfully.",
         "position_add_error":    "Could not add position.",
+        
+        # Buttons
 
         "reset_demo":            "Reset & Load Demo Data",
+
+        #----------
+        # Notiffications
+        #----------
 
         "demo_loaded":           "Demo data loaded successfully.",
         "demo_load_error":       "Could not load demo data.",
@@ -193,7 +217,13 @@ TEXTS = {
         "select_only_one":       "Please select only one application.",
         "candidate_already_hired":"This candidate is already hired",  
 
+        # Headers
+
         "email_help":            "Candidate email",
+
+        #----------
+        # Notiffications
+        #----------
 
         "email_duplicate_active": 
             "This email {email} is already used for an active application to this position.",
@@ -203,14 +233,28 @@ TEXTS = {
         "email_updated":         "Email updated successfully.",
         "email_update_error":    "Could not update email.",
 
+        # Buttons
+
+        "review":                "Review",
+        "Interview":             "Interview",
         "hire":                  "Hire",
         "reject":                "Reject",
 
+        # Application's notiffications
+
+        "select_slot_first":     "Please select a free time slot on the calendar.",
+        "slot_already_booked":   "That slot is already booked.",
+        "slot_unavailable":      "Selected unavailable time (set at Cal.com)",
+        "interview_ready":       "ТЕХНИЧЕСКОЕ Invitation data prepared. Ready for next step.",
+        "slot_in_past":          "You select a slot in the past.",
+        "selected_slot":         "Selected slot",
         "application_hired":     "Application hired.",
         "application_rejected":  "Application rejected.",
         "hire_error":            "Could not hire application.",
         "reject_error":          "Could not reject application.",
         "request_failed":        "Request failed",
+
+        # Headers
 
         "candidate_name":        "Full Name",
         "education":             "Education",
@@ -286,10 +330,26 @@ TEXTS = {
         "email_copied":          "Email скопирован!",
         "email_updated":         "Email успешно обновлён.",
         "email_update_error":    "Не удалось обновить email.",
+        
+        #----------
+        # HR Mode
+        #----------
 
+        # Кнопки
+        
+        "review":                "Рассмотреть",
+        "Interview":             "Собеседовать",
         "hire":                  "Принять на работу",
         "reject":                "Отклонить",
 
+        # Сообщения 
+        
+        "interview_ready":       "ТЕХНИЧЕСКОЕ Invitation data prepared. Ready for next step.",
+        "slot_in_past":          "Вы выбрали прошедше время",
+        "selected_slot":         "Выбрано время",        
+        "select_slot_first":     "Выберите свободный слот в календаре",
+        "slot_already_booked":   "Этот слот забронирован.",
+        "slot_unavailable":      "Выбрано нерабочее время (настроено в Cal.com)",
         "application_hired":     "Кандидат принят на работу.",
         "application_rejected":  "Заявка отклонена.",
         "hire_error":            "Не удалось принять кандидата на работу.",
@@ -375,6 +435,8 @@ if "store_experience" not in st.session_state:
     st.session_state["store_experience"] = ""
 if "store_birth_date" not in st.session_state:
     st.session_state["store_birth_date"] = date.today()
+if "bdate_touched" not in st.session_state:          # <-- new
+    st.session_state["bdate_touched"] = False        # <-- new
 if "store_position_id" not in st.session_state:
     st.session_state["store_position_id"] = None
 
@@ -426,6 +488,7 @@ if mode == t["candidate"]:
         st.session_state["store_educ"] = ""
         st.session_state["store_experience"] = ""
         st.session_state["store_birth_date"] = date.today()
+        st.session_state["bdate_touched"] = False            # <-- new
 
         # Новая версия формы — все виджеты создаются заново
         st.session_state["candidate_form_version"] += 1
@@ -451,6 +514,8 @@ if mode == t["candidate"]:
             st.session_state["store_birth_date"] = date.fromisoformat(
                 demo_data["birth_date"]
             )
+
+            st.session_state["bdate_touched"] = True              # <-- new
 
             # Новая версия формы — виджеты подхватят демо-данные
             st.session_state["candidate_form_version"] += 1
@@ -592,18 +657,19 @@ if mode == t["candidate"]:
                     st.session_state["store_birth_date"] = (
                         st.session_state[birth_date_widget_key]
                     )
+                    st.session_state["bdate_touched"] = True          # <-- new
 
                 st.date_input(
                     t["birth_date"],
                     key=birth_date_widget_key,
                     on_change=_sync_birth_date,
                     format="DD/MM/YYYY",
-                    min_value=date(1900, 1, 1),   # нижняя граница
-                    max_value=date.today()        # будущие даты выбрать нельзя
+                    min_value=date(1900, 1, 1)   # нижняя граница
+                    # max_value=date.today()        # будущие даты выбрать нельзя
                 )
 
                 # -----------------------------------------
-                # Birth date validation
+                # Birth date validation (only after the user touched it)
                 # -----------------------------------------
 
                 birth_date_invalid = (
@@ -611,18 +677,24 @@ if mode == t["candidate"]:
                     or st.session_state["store_birth_date"] >= date.today()
                 )
 
-                if st.session_state["store_birth_date"] is None:
+                show_bdate_error = (
+                    st.session_state["bdate_touched"] and birth_date_invalid
+                )
 
-                    st.error (t["empty_bdate_field"])
+                if show_bdate_error:
 
-                elif birth_date_invalid:
+                    if st.session_state["store_birth_date"] is None:
 
-                    st.markdown(
-                        f'<p style="color:red;">'
-                        f'{t["birth_date_error"]}'
-                        f'</p>',
-                        unsafe_allow_html=True
-                    )
+                        st.error(t["empty_bdate_field"])
+
+                    else:
+
+                        st.markdown(
+                            f'<p style="color:red;">'
+                            f'{t["birth_date_error"]}'
+                            f'</p>',
+                            unsafe_allow_html=True
+                        )
 
                 # -----------------------------------------
                 # Submit application
@@ -630,8 +702,15 @@ if mode == t["candidate"]:
 
                 if st.button(
                     t["submit_application"],
-                    disabled=birth_date_invalid
+                    disabled=show_bdate_error
                 ):
+
+                    # If the user is submitting an untouched (still default) invalid
+                    # birth date, mark it touched and re-render so the error appears.
+                    st.session_state["bdate_touched"] = True
+
+                    if birth_date_invalid:
+                        st.rerun()
 
                     required_fields = {
                         "store_full_name": t["full_name"],
@@ -639,7 +718,7 @@ if mode == t["candidate"]:
                         "store_educ": t["education"],
                         "store_experience": t["experience"],
                     }
-
+                    
                     empty_field = None
 
                     for field_key, field_name in required_fields.items():
@@ -692,6 +771,7 @@ if mode == t["candidate"]:
                             st.session_state["store_educ"] = ""
                             st.session_state["store_experience"] = ""
                             st.session_state["store_birth_date"] = date.today()
+                            st.session_state["bdate_touched"] = False            # <-- new
 
                             # Новая версия формы — поля визуально очистятся
                             st.session_state["candidate_form_version"] += 1
@@ -751,6 +831,17 @@ else:
     # ---------------------------------------------
 
     st.subheader(t["applications"])
+
+    # -------------------------------------------------
+    # Booked slots store (session-local for now;
+    # later: replace with data from your API)
+    # -------------------------------------------------
+
+    # if "booked_slots" not in st.session_state:
+    #     st.session_state["booked_slots"] = []   # list of {"start","end","application_id"}
+
+    if "calendar_version" not in st.session_state:
+        st.session_state["calendar_version"] = 0
 
     # -----------------------------------------------------
     # Filters
@@ -1098,6 +1189,11 @@ else:
                     ]
                 )
 
+                # Clear any pending selection when the user switches rows
+                if st.session_state.get("active_application_id") != selected_application_id:
+                    st.session_state["active_application_id"] = selected_application_id
+                    st.session_state.pop("booking_start", None)
+                    st.session_state.pop("booking_end", None)
 
                 edited_email = (
                     edited_data[
@@ -1135,9 +1231,25 @@ else:
                 # Actions
                 # -----------------------------------------
 
-                col1, col2 = st.columns(2)
+                col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
+                    # TODO: logic to be added later
+                    review_clicked = st.button(
+                        t["review"]
+                    )
+
+                with col2:
+                    interview_clicked = st.button(
+                        t["Interview"],
+                        disabled=(
+                            not can_process
+                            or not email_is_valid
+                            or email_duplicate_for_selected
+                        )
+                    )
+
+                with col3:
                     hire_clicked = st.button(
                         t["hire"],
                         disabled=(
@@ -1167,7 +1279,7 @@ else:
                         st.success(t["candidate_already_hired"])
 
 
-                with col2:
+                with col4:
                     reject_clicked = st.button(
                         t["reject"],
                         disabled=(
@@ -1177,6 +1289,236 @@ else:
                         )
                     )
 
+
+                # -------------------------------------------------
+                # Booking calendar (below Hire / Reject)
+                # -------------------------------------------------
+
+                calendar_options = {
+                    "initialView": "timeGridWeek",
+                    "selectable": True,
+                    "selectOverlap": False,      # can't select over a booked slot
+                    "slotMinTime": "09:00:00",
+                    "slotMaxTime": "18:00:00",
+                    "slotDuration": "00:30:00",
+                    "snapDuration": "00:30:00",
+                    "firstDay": 1 if lang == "ru" else 0,   # <-- ADD
+                    "validRange": {                                  # <<< ADD
+                        "start": datetime.utcnow().strftime(         # <<< ADD
+                            "%Y-%m-%dT%H:%M:%S.000Z"                 # <<< ADD
+                        )                                            # <<< ADD
+                    },                                               # <<< ADD
+                    "headerToolbar": {
+                        "left": "prev,next today",
+                        "center": "title",
+                        "right": "timeGridWeek,timeGridDay",
+                    },
+                    "height": 500,
+                    "firstDay": 1 if lang == "ru" else 0,
+                }
+
+                # Fetch booked slots from backend (DB is the source of truth)
+                try:
+                    booked_resp = requests.get(
+                        f"{API_URL}/api/interviews/booked-slots",
+                        timeout=5,
+                    )
+                    booked_resp.raise_for_status()
+                    booked_slots = booked_resp.json()
+                except requests.RequestException as e:
+                    st.warning(f"Could not load booked slots: {e}")
+                    booked_slots = []
+
+                calendar_events = [
+                    {
+                        "title": "Booked",
+                        "start": slot["start"],
+                        "end":   slot["end"],
+                        "color": "#e74c3c",
+                    }
+                    for slot in booked_slots
+                ]
+
+                calendar_result = calendar(
+                    events=calendar_events,
+                    options=calendar_options,
+                    key=f"booking_calendar_{st.session_state['calendar_version']}",
+                )
+
+                # -------------------------------------------------
+                # Handle drag-select (multi-slot) → free slots only
+                # -------------------------------------------------
+
+                if calendar_result and calendar_result.get("callback") == "select":
+                    sel = calendar_result["select"]
+
+                    sel_start = datetime.fromisoformat(
+                        sel["start"].replace("Z", "+00:00")
+                    )
+
+                    if sel_start.replace(tzinfo=None) < datetime.utcnow():
+                        st.warning(
+                           t["slot_in_past"]
+                            )
+                    else:
+                        st.session_state["booking_start"] = sel["start"]
+                        st.session_state["booking_end"]   = sel["end"]
+
+                # -------------------------------------------------
+                # Handle single-click → treat as one 30-min slot
+                # -------------------------------------------------
+
+                if calendar_result and calendar_result.get("callback") == "dateClick":
+                    date_str = calendar_result["dateClick"]["date"]
+
+                    try:
+                        start_dt = datetime.fromisoformat(
+                            date_str.replace("Z", "+00:00")
+                        )
+
+                        # Guard: reject past slots
+                        if start_dt.replace(tzinfo=None) < datetime.utcnow():
+                            st.warning(
+                                t["slot_in_past"]
+                            )
+                            st.stop()
+
+                        end_dt = start_dt + timedelta(minutes=30)
+
+                        # Normalize to FullCalendar's format so string comparisons
+                        # with booked_slots are reliable
+                        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                        end_iso   = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+                        # Overlap check against booked (red) slots
+                        overlaps_booked = any(
+                            start_iso < slot["end"] and end_iso > slot["start"]
+                            for slot in booked_slots
+                        )
+
+                        if overlaps_booked:
+                            st.info(
+                                t["slot_already_booked"]
+                            )
+                        else:
+                            st.session_state["booking_start"] = start_iso
+                            st.session_state["booking_end"]   = end_iso
+
+                    except Exception as e:
+                        st.error(f"Could not parse slot: {e}")
+
+                # -------------------------------------------------
+                # Handle clicks on booked events → info only
+                # -------------------------------------------------
+
+                if calendar_result and calendar_result.get("callback") == "eventClick":
+                    st.info(
+                        t["slot_already_booked"]
+                    )
+
+                # -------------------------------------------------
+                # Show current selection
+                # -------------------------------------------------
+
+                if (
+                    st.session_state.get("booking_start")
+                    and st.session_state.get("booking_end")
+                ):
+                    st.success(
+                        t["selected_slot"] + ": "
+                        f"{st.session_state['booking_start']} → "
+                        f"{st.session_state['booking_end']}"
+                    )
+                else:
+                    st.info(t["select_slot_first"])
+                    # Please select a time slot on the calendar
+
+                # DEBUG — remove this line once you confirm the dict shape
+                st.write("DEBUG calendar_result:", calendar_result)
+
+                # -----------------------------------------
+                # Interview — book the slot & prepare payload
+                # -----------------------------------------
+
+                if interview_clicked:
+
+                    booking_start = st.session_state.get("booking_start")
+                    booking_end   = st.session_state.get("booking_end")
+
+                    if not booking_start or not booking_end:
+                        st.error(
+                            t["select_slot_first"]
+                        )
+                    else:
+                        # 1. Send the payload to YOUR backend
+                        interview_payload = {
+                            "application_id": selected_application_id,
+                            "email":          edited_email,
+                            "full_name":      selected_application["full_name"],
+                            "booking_start":  booking_start,
+                            "booking_end":    booking_end,
+                            "support_email":  support_email,
+                        }
+
+                        try:
+                            resp = requests.post(
+                                f"{API_URL}/api/interviews",
+                                json=interview_payload,
+                                timeout=15,
+                            )
+                        except requests.RequestException as e:
+                            st.error(f"{t['request_failed']}: {e}")
+                            st.stop()
+
+                        if resp.status_code not in (200, 201):
+                            try:
+                                detail = resp.json().get("detail", resp.text)
+                            except Exception:
+                                detail = resp.text[:300]
+
+                            detail_lower = str(detail).lower()
+
+                            if resp.status_code == 409:
+                                # Slot is either outside working hours
+                                # or already booked in Cal.com
+                                st.error(t["slot_unavailable"])
+                            elif (
+                                resp.status_code == 400
+                                and "past" in detail_lower
+                            ):
+                                st.error(t["slot_in_past"])
+                            else:
+                                # Unknown error — show raw detail
+                                st.error(detail)
+
+                            st.stop()
+
+                        result = resp.json()
+
+                        # # 2. Success → append to booked_slots using Cal.com's
+                        # #    actual times and uid (not the raw selection)
+                        # st.session_state["booked_slots"].append({
+                        #     "start":          result.get("booking_start", booking_start),
+                        #     "end":            result.get("booking_end",   booking_end),
+                        #     "application_id": selected_application_id,
+                        #     "booking_uid":    result.get("booking_uid", ""),
+                        # })
+
+                        st.session_state["interview_booking_uid"] = (
+                            result.get("booking_uid", "")
+                        )
+
+                        # 3. Clear selection & remount calendar
+                        st.session_state.pop("booking_start", None)
+                        st.session_state.pop("booking_end", None)
+                        st.session_state["calendar_version"] += 1
+                        st.session_state["interview_ready_message"] = True
+                        st.rerun()
+
+                if st.session_state.pop("interview_ready_message", False):
+                    st.success(
+                        t["interview_ready"]
+                    )
 
                 # -----------------------------------------
                 # Reject

@@ -35,12 +35,55 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import SQLAlchemyError
 
-from models import Base, Position, Application
+from models import Base, Position, Application, Interview
 
 
 from pydantic import BaseModel, field_validator
 from datetime import date
 from uuid import UUID
+
+from datetime import timezone
+
+# ----------------------------------
+# Timezone naive-UTC datetime return for SQLite и Postgres
+# ----------------------------------
+
+def parse_calcom_datetime(value: str) -> datetime:
+    """
+    Cal.com отдаёт ISO-8601 в UTC, например '2026-11-05T10:00:00.000Z'.
+    Возвращаем naive-UTC datetime — одинаково удобно для SQLite и Postgres.
+    """
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+# ----------------------------------
+# Interview tablesqlite3 hr_project.db ".schema interviews"
+# ----------------------------------
+
+class InterviewResponse(BaseModel):
+    id:             str
+    application_id: str
+    calcom_uid:     str
+    booking_start:  datetime
+    booking_end:    datetime
+    attendee_email: str
+    attendee_name:  str
+    attendee_tz:    str
+    support_email:  str
+    status:         str
+    created_at:     datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BookedSlotResponse(BaseModel):
+    start:          str
+    end:            str
+    booking_uid:    str
+    application_id: str
 
 
 # ----------------------------------
@@ -324,7 +367,33 @@ def normalize_email(email: str) -> str:
     # Функция которая нормализует имэй, чтоб при проверке не было сложностей 
     # с заглавными буквами - всё нормализуется до строчных
 
+# ==========================================
+# CAL.COM CONFIG
+# ==========================================
 
+CALCOM_API_KEY    = os.getenv("CALCOM_API_KEY")
+CALCOM_EVENT_TYPE = os.getenv("CALCOM_EVENT_TYPE")
+
+if CALCOM_EVENT_TYPE:
+    try:
+        CALCOM_EVENT_TYPE = int(CALCOM_EVENT_TYPE)
+    except ValueError:
+        logging.warning(
+            "CALCOM_EVENT_TYPE must be an integer (e.g. 123456). "
+            "Calendar integration will be disabled."
+        )
+        CALCOM_EVENT_TYPE = None
+
+
+class InterviewRequest(BaseModel):
+    application_id: str
+    email:          str
+    full_name:      str
+    booking_start:  str          # ISO 8601, e.g. "2026-10-30T04:00:00.000Z"
+    booking_end:    str          # ISO 8601
+    support_email:  str = ""
+    timezone:       str = "UTC"  # TODO: populate from browser detection later
+    language:       str = "en"   # TODO: populate from browser detection later
 
 # ==========================================
 # API: CREATE APPLICATION
@@ -691,6 +760,220 @@ def update_application_email(
         )
 
 # ==========================================
+# API: BOOK INTERVIEW (Cal.com)
+# ==========================================
+
+@app.post(
+    "/api/interviews",
+    status_code=status.HTTP_201_CREATED
+)
+def create_interview(
+    request: InterviewRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Creates an interview booking on Cal.com.
+
+    Принимает подготовленные данные из фронтенда,
+    создаёт бронь в Cal.com, возвращает uid брони.
+    """
+
+    # 1. Server configuration
+    if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
+        raise HTTPException(
+            status_code=503,
+            detail="Calendar integration is not configured on the server."
+        )
+
+    # 2. Validate the application exists
+    application = db.query(Application).filter(
+        Application.id == request.application_id
+    ).first()
+
+    if not application:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found."
+        )
+
+    # 3. Build Cal.com payload
+    #    Cal.com calculates "end" from the event type duration,
+    #    so only "start" is sent here.
+    calcom_body = {
+        "start":       request.booking_start,
+        "eventTypeId": CALCOM_EVENT_TYPE,
+        "attendee": {
+            "name":     request.full_name or application.full_name,
+            "email":    request.email     or application.email,
+            "timeZone": request.timezone,
+            "language": request.language,
+        },
+        "metadata": {
+            "application_id": str(application.id),
+            "support_email":  request.support_email or "",
+        },
+    }
+
+    calcom_headers = {
+        "Authorization":   f"Bearer {CALCOM_API_KEY}",
+        "Content-Type":    "application/json",
+        "cal-api-version": "2024-08-13",
+    }
+
+    # 4. Call Cal.com
+    try:
+        response = requests.post(
+            "https://api.cal.com/v2/bookings",
+            json=calcom_body,
+            headers=calcom_headers,
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        logging.exception("Cal.com request failed.")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Calendar service unavailable: {e}"
+        )
+
+    # 5. Translate Cal.com errors into clean HTTP responses
+    if response.status_code not in (200, 201):
+        detail = ""
+        try:
+            payload = response.json()
+            detail = payload.get("message") or payload.get("error") or ""
+        except Exception:
+            detail = response.text[:300]
+
+        # Preserve 4xx if Cal.com said "slot taken", "invalid", etc.
+        http_status = (
+            response.status_code
+            if 400 <= response.status_code < 500
+            else 502
+        )
+
+        logging.warning(
+            f"Cal.com rejected booking for application {application.id}: "
+            f"{response.status_code} {detail}"
+        )
+
+        raise HTTPException(
+            status_code=http_status,
+            detail=f"Cal.com rejected the booking: {detail or 'unknown error'}"
+        )
+
+    # 6. Persist to DB
+    try:
+        data = response.json().get("data", {})
+    except Exception:
+        data = {}
+
+    booking_uid  = data.get("uid", "")
+    actual_start = data.get("start", request.booking_start)
+    actual_end   = data.get("end",   request.booking_end)
+
+    if not booking_uid:
+        raise HTTPException(
+            status_code=502,
+            detail="Cal.com did not return a booking uid."
+        )
+
+    try:
+        interview = Interview(
+            application_id = application.id,
+            calcom_uid     = booking_uid,
+            booking_start  = parse_calcom_datetime(actual_start),
+            booking_end    = parse_calcom_datetime(actual_end),
+            attendee_email = request.email     or application.email,
+            attendee_name  = request.full_name or application.full_name,
+            attendee_tz    = request.timezone,
+            support_email  = request.support_email or "",
+            status         = "confirmed",
+        )
+        db.add(interview)
+        db.commit()
+        db.refresh(interview)
+    except IntegrityError:
+        db.rollback()
+        # calcom_uid уже есть в БД (например, дубль по вебхуку)
+        raise HTTPException(
+            status_code=409,
+            detail="This booking already exists in our system."
+        )
+    except Exception as e:
+        db.rollback()
+        logging.exception("Failed to persist interview.")
+        # Внимание: бронь в Cal.com уже создана, но локально не сохранена.
+        # Для pet-проекта оставляем как 500, в продакшене нужна компенсация.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Booking created in Cal.com but not saved locally: {e}"
+        )
+
+    logging.info(
+        f"Interview booked: application={application.id}, "
+        f"cal.com_uid={booking_uid}, "
+        f"start={actual_start}, end={actual_end}"
+    )
+
+    return {
+        "message":        "Interview booked.",
+        "application_id": application.id,
+        "booking_uid":    booking_uid,
+        "booking_start":  actual_start,
+        "booking_end":    actual_end,
+        "interview_id":   interview.id,
+    }
+
+@app.get(
+    "/api/interviews/booked-slots",
+    response_model=List[BookedSlotResponse]
+)
+def get_booked_slots(
+    db: Session = Depends(get_db)
+):
+    """
+    Возвращает все подтверждённые брони в форме, которую ждёт FullCalendar.
+    """
+    try:
+        interviews = (
+            db.query(Interview)
+              .filter(Interview.status == "confirmed")
+              .order_by(Interview.booking_start)
+              .all()
+        )
+    except SQLAlchemyError:
+        logging.exception("Error fetching booked slots.")
+        raise HTTPException(
+            status_code=503,
+            detail="Database is temporarily unavailable."
+        )
+
+    return [
+        {
+            "start":          i.booking_start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "end":            i.booking_end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "booking_uid":    i.calcom_uid,
+            "application_id": i.application_id,
+        }
+        for i in interviews
+    ]
+
+# для отладки полный список
+
+@app.get(
+    "/api/interviews",
+    response_model=List[InterviewResponse]
+)
+def get_interviews(
+    status_filter: str = "confirmed",
+    db: Session = Depends(get_db)
+):
+    query = db.query(Interview)
+    if status_filter:
+        query = query.filter(Interview.status == status_filter)
+    return query.order_by(Interview.booking_start).all()    
+
+# ==========================================
 # API: CREATE DEMO DATA IF DATABASE IS EMPTY
 # ==========================================
 
@@ -790,6 +1073,9 @@ def reset_demo_data(
 ):
 
     """
+    0.
+    Clears all interviews.
+    Очищает бронирование собеседований.
     1. 
     Clears all applications.          
     Удаляет все отклики.
@@ -806,21 +1092,14 @@ def reset_demo_data(
 
     try:
 
-        # ----------------------------------
+        # 0. Delete interviews first — they reference applications
+        db.query(Interview).delete(synchronize_session=False)
+
         # 1. Delete existing applications
-        # ----------------------------------
+        db.query(Application).delete(synchronize_session=False)
 
-        db.query(Application).delete(
-            synchronize_session=False
-        )
-
-        # ----------------------------------
         # 2. Delete all existing positions
-        # ----------------------------------
-
-        db.query(Position).delete(
-            synchronize_session=False
-        )
+        db.query(Position).delete(synchronize_session=False)
 
         # ----------------------------------
         # 3. Create 3 demo positions
@@ -905,6 +1184,7 @@ def reset_demo_data(
         return {
             "message": "Success",
             "positions_created": len(demo_positions),
+            # "interview_created": (),
             "applications_created": sum(
                 len(applications)
                 for applications in APPLICATION_DEMO_COLLECTION.values()
