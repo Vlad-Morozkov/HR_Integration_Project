@@ -974,6 +974,7 @@ else:
             for application in applications:
                   
                 display_data.append({
+                    "_app_id": application["id"],  # <-- ДОБАВИТЬ СКРЫТЫЙ ID
                     t["select"]: False,
                     t["position"]: application["position_name"],
                     t["education"]: application["educ"],
@@ -1011,6 +1012,7 @@ else:
                     t["status"]
                 ],
                 column_config={
+                    "_app_id": None,  # <-- ДОБАВИТЬ (скрывает колонку из интерфейса)
                     t["select"]: st.column_config.CheckboxColumn(
                         t["select"],
                         help=t["select_one"]
@@ -1026,33 +1028,35 @@ else:
             # Detect and save changed emails
             # -------------------------------------------------
 
-            for index, row in enumerate(edited_data):
+            email_updated_flag = False
 
-                original_email = applications[index]["email"]
+            for row in edited_data:
+                app_id = row.get("_app_id")
+                if not app_id:
+                    continue
+                    
+                # Находим оригинальную заявку строго по ID
+                original_app = next((a for a in applications if a["id"] == app_id), None)
+                if not original_app:
+                    continue
+
+                original_email = original_app["email"]
                 edited_email = row[t["email"]]
 
                 if edited_email != original_email:
+                    edited_email_normalized = str(edited_email).strip().casefold()
 
-                    edited_email_normalized = str(
-                        edited_email
-                    ).strip().casefold()
-
+                    # Проверка на дубликат в этой же должности
                     duplicate_exists = any(
-                        application["id"] != applications[index]["id"]
-                        and application["position_id"]
-                            == applications[index]["position_id"]
+                        application["id"] != app_id
+                        and application["position_id"] == original_app["position_id"]
                         and application["status"] in ("New", "Hired")
-                        and str(application["email"]).strip().casefold()
-                            == edited_email_normalized
+                        and str(application["email"]).strip().casefold() == edited_email_normalized
                         for application in all_applications
                     )
 
                     if duplicate_exists:
-                        st.session_state["email_duplicate_active"] = (
-                            applications[index]["id"]
-                        )
-                       
-                        # added html clickable form to copy email in notifications
+                        st.session_state["email_duplicate_active"] = app_id
                         show_duplicate_email_notice(
                             t["email_duplicate_active"],
                             edited_email,
@@ -1060,38 +1064,22 @@ else:
                             t["email_copied"],
                             t["click_email_to_copy"]
                         )
-
-                        break
+                        st.stop() # Останавливаемся, если нашли дубль
 
                     st.session_state.pop("email_duplicate_active", None)
 
+                    # Сохраняем в базу
                     email_response = requests.patch(
-
-                        f"{API_URL}/api/applications/"
-                        f"{applications[index]['id']}/email",
-
-                        json={
-                            "email": edited_email
-                        },
-
+                        f"{API_URL}/api/applications/{app_id}/email",
+                        json={"email": edited_email},
                         timeout=5
                     )
 
                     if email_response.status_code == 200:
-
-                        st.session_state["email_updated_message"] = True
-                        st.rerun()
-                    
-         
+                        email_updated_flag = True
                     elif email_response.status_code == 409:
-
-                        st.session_state["email_duplicate_active"] = applications[index]["id"]
-
-                        detail = email_response.json().get(
-                            "detail",
-                            t["email_duplicate_active"]
-                        )
-
+                        st.session_state["email_duplicate_active"] = app_id
+                        detail = email_response.json().get("detail", t["email_duplicate_active"])
                         if "already used for an active application" in detail:
                             show_duplicate_email_notice(
                                 t["email_duplicate_active"],
@@ -1102,24 +1090,113 @@ else:
                             )
                         else:
                             st.error(detail)
-
-
+                        st.stop()
                     else:
-                        detail = email_response.json().get(
-                            "detail",
-                            ""
-                        )
+                        detail = email_response.json().get("detail", "")
+                        st.error(f'{t["email_update_error"]} {detail} (Error code: {email_response.status_code})')
+                        st.stop() # Останавливаемся при любой ошибке
 
-                        st.error(
-                            f'{t["email_update_error"]} '
-                            f'{detail} '
-                            f'(Error code: {email_response.status_code})'
-                        )
+            if email_updated_flag:
+                st.session_state["email_updated_message"] = True
+                st.rerun()            
+            # # -------------------------------------------------
+            # # Detect and save changed emails
+            # # -------------------------------------------------
 
-                    break
+            # for index, row in enumerate(edited_data):
 
-            if st.session_state.pop("email_updated_message", False):
-                st.success(t["email_updated"])        
+            #     original_email = applications[index]["email"]
+            #     edited_email = row[t["email"]]
+
+            #     if edited_email != original_email:
+
+            #         edited_email_normalized = str(
+            #             edited_email
+            #         ).strip().casefold()
+
+            #         duplicate_exists = any(
+            #             application["id"] != applications[index]["id"]
+            #             and application["position_id"]
+            #                 == applications[index]["position_id"]
+            #             and application["status"] in ("New", "Hired")
+            #             and str(application["email"]).strip().casefold()
+            #                 == edited_email_normalized
+            #             for application in all_applications
+            #         )
+
+            #         if duplicate_exists:
+            #             st.session_state["email_duplicate_active"] = (
+            #                 applications[index]["id"]
+            #             )
+                       
+            #             # added html clickable form to copy email in notifications
+            #             show_duplicate_email_notice(
+            #                 t["email_duplicate_active"],
+            #                 edited_email,
+            #                 t["cancel_email_changes"],
+            #                 t["email_copied"],
+            #                 t["click_email_to_copy"]
+            #             )
+
+            #             break
+
+            #         st.session_state.pop("email_duplicate_active", None)
+
+            #         email_response = requests.patch(
+
+            #             f"{API_URL}/api/applications/"
+            #             f"{applications[index]['id']}/email",
+
+            #             json={
+            #                 "email": edited_email
+            #             },
+
+            #             timeout=5
+            #         )
+
+            #         if email_response.status_code == 200:
+
+            #             st.session_state["email_updated_message"] = True
+            #             st.rerun()
+                    
+         
+            #         elif email_response.status_code == 409:
+
+            #             st.session_state["email_duplicate_active"] = applications[index]["id"]
+
+            #             detail = email_response.json().get(
+            #                 "detail",
+            #                 t["email_duplicate_active"]
+            #             )
+
+            #             if "already used for an active application" in detail:
+            #                 show_duplicate_email_notice(
+            #                     t["email_duplicate_active"],
+            #                     edited_email,
+            #                     t["cancel_email_changes"],
+            #                     t["email_copied"],
+            #                     t["click_email_to_copy"]
+            #                 )
+            #             else:
+            #                 st.error(detail)
+
+
+            #         else:
+            #             detail = email_response.json().get(
+            #                 "detail",
+            #                 ""
+            #             )
+
+            #             st.error(
+            #                 f'{t["email_update_error"]} '
+            #                 f'{detail} '
+            #                 f'(Error code: {email_response.status_code})'
+            #             )
+
+            #         break
+
+            # if st.session_state.pop("email_updated_message", False):
+            #     st.success(t["email_updated"])        
 
             # ---------------------------------------------
             # Find selected rows
@@ -1265,7 +1342,7 @@ else:
                     )
 
                     if same_email_hired:
-                        st.success(t["candidate_already_hired"])
+                        st.warning(t["candidate_already_hired"])
 
 
                 with col4:
