@@ -226,6 +226,27 @@ APPLICATION_DEMO_COLLECTION = {
                     "email":        "aspanseric+charlie@gmail.com",
                     "birth_date":   date(1995, 1, 10),
                     "status":       "Canceled"
+                },
+                # --- НОВЫЕ АНГЛИЙСКИЕ ПРИМЕРЫ ---
+                {
+                    "lang":         "en",
+                    "position_id":  "Frontend Engineer",
+                    "educ":         "MSc Software Engineering",
+                    "experience":   "6 years",
+                    "full_name":    "David Miller",
+                    "email":        "aspanseric+david@gmail.com",
+                    "birth_date":   date(1985, 11, 20),
+                    "status":       "New"
+                },
+                {
+                    "lang":         "en",
+                    "position_id":  "HR Manager",
+                    "educ":         "BSc Human Resources",
+                    "experience":   "4 years",
+                    "full_name":    "Eva Green",
+                    "email":        "aspanseric+eva@gmail.com",
+                    "birth_date":   date(1993, 3, 8),
+                    "status":       "New"
                 }
             ],
 
@@ -264,6 +285,27 @@ APPLICATION_DEMO_COLLECTION = {
                     "email":       "aspanseric+PAD90@gmail.com",
                     "birth_date":  date(1990, 1, 10),
                     "status":      "Canceled"
+                },
+                # --- НОВЫЕ РУССКИЕ ПРИМЕРЫ ---
+                {
+                    "lang":        "ru",
+                    "position_id": "Frontend Engineer",
+                    "educ":        "Высшее. Бакалавр",
+                    "experience":  "4 года",
+                    "full_name":   "Захаров Михаил Олегович",
+                    "email":       "aspanseric+ZHRV@gmail.com",
+                    "birth_date":  date(1997, 7, 14),
+                    "status":      "New"
+                },
+                {
+                    "lang":        "ru",
+                    "position_id": "Senior Backend Developer",
+                    "educ":        "Высшее. Магистр",
+                    "experience":  "6 лет",
+                    "full_name":   "Черепанова Мария Петровна",
+                    "email":       "aspanseric+CHMP@gmail.com",
+                    "birth_date":  date(1991, 9, 30),
+                    "status":      "New"
                 }
 
             ]
