@@ -1417,7 +1417,20 @@ else:
                 # Нарезаем брони на 30-минутные блоки для красивого отображения
                 # -------------------------------------------------
                 calendar_events = []
+                
+                # Палитра цветов для разных кандидатов (Красный, Синий, Зеленый, Желтый, Фиолетовый)
+                color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
+                app_color_map = {}
+
                 for slot in booked_slots:
+                    app_id = slot.get("application_id", "")
+                    
+                    # Назначаем уникальный цвет для каждого ID заявки
+                    if app_id not in app_color_map:
+                        app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
+                    
+                    slot_color = app_color_map[app_id]
+                    
                     s_str = slot["start"].replace("Z", "+00:00")
                     e_str = slot["end"].replace("Z", "+00:00")
                     
@@ -1433,10 +1446,10 @@ else:
                             next_chunk = e_dt
                             
                         calendar_events.append({
-                            "title": "Booked" if is_first else "", # Пишем текст только на первом
+                            "title": "Booked" if is_first else "", 
                             "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                             "end":   next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            "color": "#e74c3c",
+                            "color": slot_color,  # <--- Динамический цвет
                         })
                         current = next_chunk
                         is_first = False

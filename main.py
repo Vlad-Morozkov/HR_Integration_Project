@@ -1186,7 +1186,9 @@ def initialize_demo_data(
 
 def generate_demo_interviews(db: Session, applications: list):
     """
-    Создает демо-брони в Cal.com и сохраняет их в БД по 30 минут.
+    Создает демо-брони в Cal.com и сохраняет их в БД.
+    Брони разной длины (30, 60, 90 минут) нарезаются на 30-минутные куски,
+    так как Cal.com запрещает менять длительность через API.
     """
     if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
         logging.warning("Cal.com not configured, skipping demo interviews.")
@@ -1195,71 +1197,91 @@ def generate_demo_interviews(db: Session, applications: list):
     start_date = datetime.utcnow().date()
     end_date = start_date + timedelta(days=14)
     
-    created_count = 0
+    bookings_created = 0
     current_date = start_date
+    durations = [30, 60, 90]  # Длительность в минутах: 30 мин, 1 час, 1.5 часа
 
     while current_date <= end_date:
         # 5 - суббота, 6 - воскресенье (пропускаем)
         if current_date.weekday() < 5: 
-            random_hour = random.randint(9, 16)
+            # Максимальный час 15, чтобы 1.5 часа укладывались до 17:00 (рабочее время)
+            random_hour = random.randint(9, 15) 
             random_minute = random.choice([0, 30])
             
             start_dt = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=random_hour, minutes=random_minute)
             
             if start_dt > datetime.utcnow() + timedelta(hours=1):
                 attendee = random.choice(applications)
-                
-                # Для тестов используем ваши реальные адреса, чтобы Cal.com пропустил
-                # (если в базе лежат example.com, этот replace их спасет)
                 safe_email = attendee.email.replace("example.com", "gmail.com")
                 
-                calcom_body = {
-                    "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "eventTypeId": CALCOM_EVENT_TYPE,
-                    "attendee": {
-                        "name": attendee.full_name,
-                        "email": safe_email,
-                        "timeZone": "UTC",
-                        "language": "en",
-                    },
-                }
+                # Выбираем случайную длительность
+                duration = random.choice(durations)
+                end_dt = start_dt + timedelta(minutes=duration)
                 
-                try:
-                    r = requests.post(
-                        "https://api.cal.com/v2/bookings",
-                        json=calcom_body,
-                        headers={
-                            "Authorization": f"Bearer {CALCOM_API_KEY}",
-                            "Content-Type": "application/json",
-                            "cal-api-version": "2024-08-13",
+                # Нарезаем на 30-минутные куски для Cal.com
+                current_chunk_start = start_dt
+                is_success = True
+                
+                while current_chunk_start < end_dt:
+                    next_chunk_end = current_chunk_start + timedelta(minutes=30)
+                    if next_chunk_end > end_dt:
+                        next_chunk_end = end_dt
+                        
+                    calcom_body = {
+                        "start": current_chunk_start.strftime("%Y-%m-%dT%H:%M:00.000Z"),
+                        "eventTypeId": CALCOM_EVENT_TYPE,
+                        "attendee": {
+                            "name": attendee.full_name,
+                            "email": safe_email,
+                            "timeZone": "UTC",
+                            "language": "en",
                         },
-                        timeout=5
-                    )
+                    }
                     
-                    if r.status_code in (200, 201):
-                        data = r.json().get("data", {})
-                        db.add(Interview(
-                            application_id=attendee.id,
-                            calcom_uid=data.get("uid"),
-                            booking_start=start_dt,
-                            booking_end=start_dt + timedelta(minutes=30),
-                            attendee_email=safe_email,
-                            attendee_name=attendee.full_name,
-                            attendee_tz="UTC",
-                            status="confirmed"
-                        ))
-                        created_count += 1
-                    else:
-                        logging.error(f"Demo rejected: {r.text}")
-                except Exception as e:
-                    logging.error(f"Demo booking failed: {e}")
+                    try:
+                        r = requests.post(
+                            "https://api.cal.com/v2/bookings",
+                            json=calcom_body,
+                            headers={
+                                "Authorization": f"Bearer {CALCOM_API_KEY}",
+                                "Content-Type": "application/json",
+                                "cal-api-version": "2024-08-13",
+                            },
+                            timeout=5
+                        )
+                        
+                        if r.status_code in (200, 201):
+                            data = r.json().get("data", {})
+                            db.add(Interview(
+                                application_id=attendee.id,
+                                calcom_uid=data.get("uid"),
+                                booking_start=current_chunk_start,
+                                booking_end=next_chunk_end,
+                                attendee_email=safe_email,
+                                attendee_name=attendee.full_name,
+                                attendee_tz="UTC",
+                                status="confirmed"
+                            ))
+                        else:
+                            logging.error(f"Demo rejected: {r.text}")
+                            is_success = False
+                            break # Прерываем, если один кусок не удался
+                    except Exception as e:
+                        logging.error(f"Demo booking failed: {e}")
+                        is_success = False
+                        break
+                        
+                    current_chunk_start = next_chunk_end
+                
+                if is_success:
+                    bookings_created += 1
 
             current_date += timedelta(days=2)
         else:
             current_date += timedelta(days=1)
 
     db.commit()
-    return created_count
+    return bookings_created
 
 @app.post(
     "/api/reset-demo",
