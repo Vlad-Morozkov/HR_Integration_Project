@@ -1226,11 +1226,10 @@ def initialize_demo_data(
 # API: RESET DEMO DATA
 # ==========================================
 
-def generate_demo_interviews(db: Session, applications: list):
+def generate_demo_interviews(db: Session, applications: list, tz_offset: float = 0.0):
     """
     Создает демо-брони на 2 недели.
-    Первый день гарантирует 2 брони встык для демонстрации цветов.
-    Остальные дни распределены по всему дню.
+    Использует tz_offset для корректной генерации времени в часовом поясе пользователя.
     """
     if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
         logging.warning("Cal.com not configured, skipping demo interviews.")
@@ -1243,13 +1242,14 @@ def generate_demo_interviews(db: Session, applications: list):
     current_date = start_date
     durations = [30, 60, 90] 
     
-    # Утро, обед, после обеда, вечер (распределение по всему дню)
-    preferred_hours = [9, 11, 14, 16] 
+    # Генерируем часы в UTC (например, если tz_offset = 5, а мы хотим 09:00 по местному,
+    # то в UTC это 04:00. Значит: 9 - 5 = 4).
+    # Целевые часы по местному времени: 9:00, 11:00, 13:00, 15:00
+    local_hours = [9, 11, 13, 15]
+    preferred_hours = [h - int(tz_offset) for h in local_hours] 
     
-    # Флаг для создания специальной пары в первый же день
     need_special_pair = True 
 
-    # Вспомогательная функция для отправки одного 30-минутного куска
     def send_booking(attendee, start_dt, end_dt):
         safe_email = attendee.email.replace("example.com", "gmail.com")
         calcom_body = {
@@ -1294,22 +1294,19 @@ def generate_demo_interviews(db: Session, applications: list):
             return False
 
     while current_date <= end_date:
-        # 5 - суббота, 6 - воскресенье (пропускаем)
         if current_date.weekday() < 5: 
             
             # --- СПЕЦИАЛЬНАЯ ПАРА ДЛЯ ЦВЕТОВ ---
             if need_special_pair and len(applications) >= 2:
-                # Пробуем сделать пару в 10:00 утра
-                pair_start = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=10)
+                # 10:00 утра по местному времени.
+                # В UTC это (10 - tz_offset)
+                pair_start_utc_hour = 10 - int(tz_offset)
+                pair_start = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=pair_start_utc_hour)
                 
-                # Если сегодня уже слишком поздно, пара перенесется на следующий рабочий день
                 if pair_start > datetime.utcnow() + timedelta(hours=1):
-                    # Берем двух разных кандидатов
                     person1, person2 = random.sample(applications, 2)
                     
-                    # Первый: 10:00 - 10:30
                     if send_booking(person1, pair_start, pair_start + timedelta(minutes=30)):
-                        # Второй: 10:30 - 11:30 (1 час, нарежется на 2 блока по 30 мин)
                         p2_start = pair_start + timedelta(minutes=30)
                         p2_end = p2_start + timedelta(minutes=60)
                         
@@ -1321,11 +1318,11 @@ def generate_demo_interviews(db: Session, applications: list):
                             cur = nxt
                             
                         bookings_created += 2
-                        need_special_pair = False # Пара создана
+                        need_special_pair = False 
                         current_date += timedelta(days=2)
-                        continue # Переходим к следующему дню
+                        continue 
 
-            # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ (ОСТАЛЬНЫЕ ДНИ) ---
+            # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ ---
             random_hour = random.choice(preferred_hours)
             random_minute = random.choice([0, 30])
             
@@ -1365,7 +1362,8 @@ def generate_demo_interviews(db: Session, applications: list):
     status_code=status.HTTP_200_OK
 )
 def reset_demo_data(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    tz_offset: float = 0.0   
 ):
 
     """
@@ -1502,7 +1500,8 @@ def reset_demo_data(
         
         created_interviews = 0
         if new_apps:
-            created_interviews = generate_demo_interviews(db, new_apps)
+            # ПЕРЕДАЕМ tz_offset В ФУНКЦИЮ
+            created_interviews = generate_demo_interviews(db, new_apps, tz_offset)
             logging.info(f"Created {created_interviews} demo interviews.")
 
         logging.info("Demo data successfully reset.")

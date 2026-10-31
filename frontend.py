@@ -13,7 +13,38 @@ import html
 import json
 import streamlit.components.v1 as components
 
+# --- АВТООПРЕДЕЛЕНИЕ ЯЗЫКА И ЧАСОВОГО ПОЯСА ---
+# Считываем TZ и язык браузера. Если их нет в URL, перезагружаем страницу с ними.
+components.html(
+    """
+    <script>
+        const url = new URL(window.parent.location);
+        if (!url.searchParams.has('user_tz_offset')) {
+            // Получаем сдвиг в часах (например, 5 для UTC+5)
+            const tzOffset = -new Date().getTimezoneOffset() / 60; 
+            const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone; 
+            const lang = navigator.language.split('-')[0]; // 'ru' или 'en'
+            
+            url.searchParams.set('user_tz_offset', tzOffset);
+            url.searchParams.set('user_tz_name', tzName);
+            url.searchParams.set('user_lang', lang);
+            
+            window.parent.location.href = url.toString();
+        }
+    </script>
+    """,
+    height=0, width=0
+)
 
+# Забираем данные из URL в Python
+user_tz_offset = float(st.query_params.get("user_tz_offset", 0.0))
+user_tz_name = st.query_params.get("user_tz_name", "UTC")
+browser_lang = st.query_params.get("user_lang", "en")
+
+# Сохраняем в session_state, чтобы использовать дальше
+st.session_state["user_tz_offset"] = user_tz_offset
+st.session_state["user_tz_name"] = user_tz_name
+# ------------------------------------------------
 
 def show_duplicate_email_notice(
     message_template,
@@ -109,6 +140,13 @@ st.set_page_config(
 # =========================================================
 
 LANGUAGES = ["English", "Русский"]
+
+# Устанавливаем язык по умолчанию на основе браузера
+default_index = 1 if browser_lang == "ru" else 0
+
+# Если пользователь еще не трогал селектор, ставим дефолт
+if "language_selector" not in st.session_state:
+    st.session_state["language_selector"] = LANGUAGES[default_index]
 
 max_language_length = max(
     len(language_name)
@@ -210,7 +248,7 @@ TEXTS = {
 
         "demo_loaded":           "Demo data loaded successfully.",
         "DemoData&BookingGeneration": 
-                "Demo data & cal.com in process. Please, wait ...",
+                "Demo data is being loaded and booking via Cal.com is being set up. Please wait...",
         "demo_load_error":       "Could not load demo data.",
         "demo_load_error_check_connection":
                "Please check the connection and try again.",
@@ -1581,6 +1619,8 @@ else:
                             "booking_start":  booking_start,
                             "booking_end":    booking_end,
                             "support_email":  support_email,
+                            "timezone":       st.session_state.get("user_tz_name", "UTC"),
+                            "language":       lang                            
                         }
 
                         try:
@@ -1810,11 +1850,15 @@ else:
 
     if st.button(t["reset_demo"]):
 
+        # Берем сдвиг из нашего session_state
+        tz_offset = st.session_state.get("user_tz_offset", 0.0)
+
         # Увеличиваем таймаут, так как создание демо-броней занимает время
         with st.spinner(t["DemoData&BookingGeneration"]):
 
             response = requests.post(
                 f"{API_URL}/api/reset-demo",
+                params={"tz_offset": tz_offset},  # <-- ПЕРЕДАЕМ СДВИГ                
                 timeout=90  # <-- УВЕЛИЧИЛИ ТАЙМАУТ
             )
 
