@@ -832,18 +832,6 @@ else:
 
     st.subheader(t["applications"])
 
-    # -------------------------------------------------
-    # Booked slots store (session-local for now;
-    # later: replace with data from your API)
-    # -------------------------------------------------
-
-    # if "booked_slots" not in st.session_state:
-    #     st.session_state["booked_slots"] = []   # list of {"start","end","application_id"}
-
-    # not need
-    # if "calendar_version" not in st.session_state:
-    #     st.session_state["calendar_version"] = 0
-
     # -----------------------------------------------------
     # Filters
     # -----------------------------------------------------
@@ -1304,10 +1292,8 @@ else:
                     "slotDuration": "00:30:00",
                     "snapDuration": "00:30:00",
                     "firstDay": 1 if lang == "ru" else 0,   # <-- ADD
-                    "validRange": {                                  # <<< ADD
-                        "start": datetime.utcnow().strftime(         # <<< ADD
-                            "%Y-%m-%dT%H:%M:%S.000Z"                 # <<< ADD
-                        )                                            # <<< ADD
+                    "validRange": {
+                        "start": date.today().isoformat()
                     },                                               # <<< ADD
                     "headerToolbar": {
                         "left": "prev,next today",
@@ -1495,15 +1481,6 @@ else:
                             st.stop()
 
                         result = resp.json()
-
-                        # # 2. Success → append to booked_slots using Cal.com's
-                        # #    actual times and uid (not the raw selection)
-                        # st.session_state["booked_slots"].append({
-                        #     "start":          result.get("booking_start", booking_start),
-                        #     "end":            result.get("booking_end",   booking_end),
-                        #     "application_id": selected_application_id,
-                        #     "booking_uid":    result.get("booking_uid", ""),
-                        # })
 
                         st.session_state["interview_booking_uid"] = (
                             result.get("booking_uid", "")
