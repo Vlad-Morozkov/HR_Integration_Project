@@ -1413,15 +1413,37 @@ else:
                     st.warning(f"Could not load booked slots: {e}")
                     booked_slots = []
 
-                calendar_events = [
-                    {
-                        "title": "Booked",
-                        "start": slot["start"],
-                        "end":   slot["end"],
-                        "color": "#e74c3c",
-                    }
-                    for slot in booked_slots
-                ]
+                # -------------------------------------------------
+                # Нарезаем брони на 30-минутные блоки для красивого отображения
+                # -------------------------------------------------
+                calendar_events = []
+                for slot in booked_slots:
+                    s_str = slot["start"].replace("Z", "+00:00")
+                    e_str = slot["end"].replace("Z", "+00:00")
+                    
+                    s_dt = datetime.fromisoformat(s_str)
+                    e_dt = datetime.fromisoformat(e_str)
+                    
+                    current = s_dt
+                    is_first = True
+                    
+                    while current < e_dt:
+                        next_chunk = current + timedelta(minutes=30)
+                        if next_chunk > e_dt:
+                            next_chunk = e_dt
+                            
+                        calendar_events.append({
+                            "title": "Booked" if is_first else "", # Пишем текст только на первом
+                            "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                            "end":   next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                            "color": "#e74c3c",
+                        })
+                        current = next_chunk
+                        is_first = False
+
+                # -------------------------------------------------
+                # Вызов календаря
+                # -------------------------------------------------
 
                 calendar_result = calendar(
                     events=calendar_events,

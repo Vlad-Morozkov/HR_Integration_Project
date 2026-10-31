@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import uuid
 import logging
+import random
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 from typing import List
 
@@ -117,6 +118,33 @@ def cancel_calcom_booking(booking_uid: str) -> bool:
     except requests.RequestException as e:
         logging.exception(f"Cal.com cancel request error: {e}")
         return False
+
+def prune_old_interviews(db: Session, keep_last: int = 20):
+    """
+    Оставляет в БД только `keep_last` самых свежих записей.
+    Перед удалением старых броней отменяет их в Cal.com.
+    """
+    try:
+        # Получаем все брони, сортируя от новых к старым (по дате создания)
+        interviews = db.query(Interview).order_by(Interview.created_at.desc()).all()
+
+        if len(interviews) > keep_last:
+            to_delete = interviews[keep_last:] # Берем всё, что идет после 10-й записи
+
+            for old_int in to_delete:
+                # Если бронь еще активна, отменяем её в Cal.com
+                if old_int.status == "confirmed":
+                    cancel_calcom_booking(old_int.calcom_uid)
+
+                # Удаляем из локальной БД
+                db.delete(old_int)
+
+            db.commit()
+            logging.info(f"Pruned {len(to_delete)} old interviews. Kept last {keep_last}.")
+            
+    except Exception as e:
+        db.rollback()
+        logging.exception("Error pruning old interviews.")        
 
 # ----------------------------------
 # Interview tablesqlite3 hr_project.db ".schema interviews"
@@ -907,6 +935,7 @@ def create_interview(
     #    so only "start" is sent here.
     calcom_body = {
         "start":       request.booking_start,
+        "lengthInMinutes": duration_minutes, # <-- ДОБАВИТЬ ЭТО
         "eventTypeId": CALCOM_EVENT_TYPE,
         "attendee": {
             "name":     request.full_name or application.full_name,
@@ -1020,6 +1049,8 @@ def create_interview(
         f"cal.com_uid={booking_uid}, "
         f"start={actual_start}, end={actual_end}"
     )
+
+    prune_old_interviews(db, keep_last=20)
 
     return {
         "message":        "Interview booked.",
@@ -1170,6 +1201,90 @@ def initialize_demo_data(
 # API: RESET DEMO DATA
 # ==========================================
 
+def generate_demo_interviews(db: Session, applications: list):
+    """
+    Создает демо-брони в Cal.com и сохраняет их в БД.
+    Бронирует раз в 2 рабочих дня, начиная с сегодня, на 2 недели вперед.
+    """
+    if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
+        logging.warning("Cal.com not configured, skipping demo interviews.")
+        return 0
+
+    # Ищем пользователя, чтобы проверить рабочие часы (упрощенно берем с 9 до 16 UTC)
+    start_date = datetime.utcnow().date()
+    end_date = start_date + timedelta(days=14)
+    
+    created_count = 0
+    current_date = start_date
+    durations = [30, 60, 90] # 30 мин, 1 час, 1.5 часа
+
+    while current_date <= end_date:
+        # 5 - это суббота, 6 - воскресенье
+        if current_date.weekday() < 5: 
+            
+            # Выбираем случайное время с 09:00 до 16:00 UTC
+            random_hour = random.randint(9, 16)
+            random_minute = random.choice([0, 30])
+            
+            # Если это сегодня, убеждаемся, что время еще не прошло
+            start_dt = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=random_hour, minutes=random_minute)
+            
+            if start_dt > datetime.utcnow() + timedelta(hours=1): # хотя бы за час до брони
+                duration = random.choice(durations)
+                end_dt = start_dt + timedelta(minutes=duration)
+                
+                # Берем случайного кандидата из демо-заявок
+                attendee = random.choice(applications)
+                
+                calcom_body = {
+                    "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "lengthInMinutes": duration,
+                    "eventTypeId": CALCOM_EVENT_TYPE,
+                    "attendee": {
+                        "name": attendee.full_name,
+                        "email": attendee.email,
+                        "timeZone": "UTC",
+                        "language": "en",
+                    },
+                }
+                
+                try:
+                    r = requests.post(
+                        "https://api.cal.com/v2/bookings",
+                        json=calcom_body,
+                        headers={
+                            "Authorization": f"Bearer {CALCOM_API_KEY}",
+                            "Content-Type": "application/json",
+                            "cal-api-version": "2024-08-13",
+                        },
+                        timeout=5
+                    )
+                    
+                    if r.status_code in (200, 201):
+                        data = r.json().get("data", {})
+                        db.add(Interview(
+                            application_id=attendee.id,
+                            calcom_uid=data.get("uid"),
+                            booking_start=start_dt,
+                            booking_end=end_dt,
+                            attendee_email=attendee.email,
+                            attendee_name=attendee.full_name,
+                            attendee_tz="UTC",
+                            status="confirmed"
+                        ))
+                        created_count += 1
+                except Exception as e:
+                    logging.error(f"Demo booking failed: {e}")
+
+            # Пропускаем один рабочий день (как просили - раз в два дня)
+            current_date += timedelta(days=2)
+        else:
+            # Если попали на выходной, сдвигаемся на понедельник
+            current_date += timedelta(days=1)
+
+    db.commit()
+    return created_count
+
 @app.post(
     "/api/reset-demo",
     status_code=status.HTTP_200_OK
@@ -1305,16 +1420,26 @@ def reset_demo_data(
 
         db.commit()
 
+        # ----------------------------------
+        # 7. Создаем демо-брони на 2 недели
+        # ----------------------------------
+        new_apps = db.query(Application).filter(Application.status == "New").all()
+        
+        created_interviews = 0
+        if new_apps:
+            created_interviews = generate_demo_interviews(db, new_apps)
+            logging.info(f"Created {created_interviews} demo interviews.")
+
         logging.info("Demo data successfully reset.")
 
         return {
             "message": "Success",
             "positions_created": len(demo_positions),
-            # "interview_created": (),
             "applications_created": sum(
                 len(applications)
                 for applications in APPLICATION_DEMO_COLLECTION.values()
-            )
+            ),
+            "interviews_created": created_interviews  # <-- Добавили в ответ
         }
 
     except Exception as e:
