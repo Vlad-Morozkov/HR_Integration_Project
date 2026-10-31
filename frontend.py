@@ -1114,6 +1114,11 @@ else:
                     st.session_state.get("editor_version", 0) + 1
                 )
                 st.rerun()            
+
+            # Показываем отложенное сообщение об успехе
+            if st.session_state.pop("email_updated_message", False):
+                st.success(t["email_updated"])
+
             # # -------------------------------------------------
             # # Detect and save changed emails
             # # -------------------------------------------------
