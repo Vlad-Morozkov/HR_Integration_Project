@@ -76,10 +76,22 @@ def verify_calcom_signature(raw_body: bytes, signature_header: str | None) -> bo
 
 def parse_calcom_datetime(value: str) -> datetime:
     """
-    Cal.com отдаёт ISO-8601 в UTC, например '2026-11-05T10:00:00.000Z'.
-    Возвращаем naive-UTC datetime — одинаково удобно для SQLite и Postgres.
+    Безопасный парсинг ISO-8601 для Python 3.8.
+    Отрезает миллисекунды (например, .000Z), которые старый Python не понимает.
     """
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if "." in value:
+        parts = value.split(".")
+        if "Z" in parts[1]:
+            value = parts[0] + "Z"
+        elif "+" in parts[1]:
+            value = parts[0] + "+" + parts[1].split("+")[1]
+        elif "-" in parts[1] and parts[1].find("-") > 0:
+            value = parts[0] + parts[1][parts[1].find("-"):]
+        else:
+            value = parts[0]
+
+    value = value.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(value)
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
@@ -191,7 +203,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "BSc Computer Science",
                     "experience":   "5 years",
                     "full_name":    "Alice Smith",
-                    "email":        "alice@example.com",
+                    "email":        "aspanseric+alice@gmail.com",
                     "birth_date":   date(1990, 5, 15),
                     "status":       "New"
                 },
@@ -201,7 +213,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "MBA",
                     "experience":   "3 years",
                     "full_name":    "Bob Jones",
-                    "email":        "bob@example.com",
+                    "email":        "aspanseric+bob@gmail.com",
                     "birth_date":   date(1988, 8, 22),
                     "status":       "Hired"
                 },
@@ -211,7 +223,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "BA Psychology",
                     "experience":   "2 years",
                     "full_name":    "Charlie Brown",
-                    "email":        "charlie@example.com",
+                    "email":        "aspanseric+charlie@gmail.com",
                     "birth_date":   date(1995, 1, 10),
                     "status":       "Canceled"
                 }
@@ -229,7 +241,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Бакалавр",
                     "experience":  "3 года",
                     "full_name":   "Синицын Пётр Игоревич",
-                    "email":       "SPI94@example.com",
+                    "email":       "aspanseric+SPI94@gmail.com",
                     "birth_date":  date(1994, 6, 2),
                     "status":      "New"
                 },
@@ -239,7 +251,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Магистр",
                     "experience":  "5 лет",
                     "full_name":   "Иванова Анна Сергеевна",
-                    "email":       "IAA92@example.com",
+                    "email":       "aspanseric+IAA92@gmail.com",
                     "birth_date":  date(1992, 2, 29),
                     "status":      "Hired"
                 },
@@ -249,7 +261,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Кандидат технических наук",
                     "experience":  "7 лет",
                     "full_name":   "Петров Алексей Дмитриевич",
-                    "email":       "PAD90@example.com",
+                    "email":       "aspanseric+PAD90@gmail.com",
                     "birth_date":  date(1990, 1, 10),
                     "status":      "Canceled"
                 }
@@ -933,9 +945,19 @@ def create_interview(
     # 3. Build Cal.com payload
     #    Cal.com calculates "end" from the event type duration,
     #    so only "start" is sent here.
+    
+    # Вычисляем длительность в минутах (защищено от падения)
+    try:
+        start_dt = parse_calcom_datetime(request.booking_start)
+        end_dt = parse_calcom_datetime(request.booking_end)
+        duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+    except Exception as e:
+        logging.error(f"Error parsing dates for duration: {e}")
+        duration_minutes = 30  # Дефолт (30 минут), если дата пришла кривой
+
     calcom_body = {
         "start":       request.booking_start,
-        "lengthInMinutes": duration_minutes, # <-- ДОБАВИТЬ ЭТО
+        "lengthInMinutes": duration_minutes,
         "eventTypeId": CALCOM_EVENT_TYPE,
         "attendee": {
             "name":     request.full_name or application.full_name,
