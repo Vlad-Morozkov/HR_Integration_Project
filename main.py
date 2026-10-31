@@ -942,104 +942,85 @@ def create_interview(
             detail="Application not found."
         )
 
-    # 3. Build Cal.com payload
-    #    Cal.com calculates "end" from the event type duration,
-    #    so only "start" is sent here.
-    
-    # Вычисляем длительность в минутах (защищено от падения)
+    # 3. Вычисляем длительность
     try:
         start_dt = parse_calcom_datetime(request.booking_start)
         end_dt = parse_calcom_datetime(request.booking_end)
-        duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
     except Exception as e:
-        logging.error(f"Error parsing dates for duration: {e}")
-        duration_minutes = 30  # Дефолт (30 минут), если дата пришла кривой
+        logging.error(f"Error parsing dates: {e}")
+        raise HTTPException(status_code=400, detail="Invalid date format")
 
-    calcom_body = {
-        "start":       request.booking_start,
-        "lengthInMinutes": duration_minutes,
-        "eventTypeId": CALCOM_EVENT_TYPE,
-        "attendee": {
-            "name":     request.full_name or application.full_name,
-            "email":    request.email     or application.email,
-            "timeZone": request.timezone,
-            "language": request.language,
-        },
-        "metadata": {
-            "application_id": str(application.id),
-            "support_email":  request.support_email or "",
-        },
-    }
+    # Нарезаем на куски по 30 минут
+    chunks = []
+    current = start_dt
+    while current < end_dt:
+        next_chunk = current + timedelta(minutes=30)
+        if next_chunk > end_dt:
+            next_chunk = end_dt
+        chunks.append((current, next_chunk))
+        current = next_chunk
 
+    # 4. Отправляем каждый кусок в Cal.com
+    created_uids = []
     calcom_headers = {
         "Authorization":   f"Bearer {CALCOM_API_KEY}",
         "Content-Type":    "application/json",
         "cal-api-version": "2024-08-13",
     }
 
-    # 4. Call Cal.com
-    try:
-        response = requests.post(
-            "https://api.cal.com/v2/bookings",
-            json=calcom_body,
-            headers=calcom_headers,
-            timeout=15,
-        )
-    except requests.RequestException as e:
-        logging.exception("Cal.com request failed.")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Calendar service unavailable: {e}"
-        )
+    for chunk_start, chunk_end in chunks:
+        # Округляем до минут, чтобы Cal.com не ругался
+        start_str = chunk_start.strftime("%Y-%m-%dT%H:%M:00.000Z")
+        
+        calcom_body = {
+            "start": start_str,
+            "eventTypeId": CALCOM_EVENT_TYPE,
+            "attendee": {
+                "name":     request.full_name or application.full_name,
+                "email":    request.email     or application.email,
+                "timeZone": request.timezone,
+                "language": request.language,
+            },
+            "metadata": {
+                "application_id": str(application.id),
+                "support_email":  request.support_email or "",
+            },
+        }
 
-    # 5. Translate Cal.com errors into clean HTTP responses
-    if response.status_code not in (200, 201):
-        detail = ""
         try:
-            payload = response.json()
-            detail = payload.get("message") or payload.get("error") or ""
-        except Exception:
-            detail = response.text[:300]
+            response = requests.post(
+                "https://api.cal.com/v2/bookings",
+                json=calcom_body,
+                headers=calcom_headers,
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            # Если сеть упала, отменяем то, что уже успели создать
+            for uid in created_uids:
+                cancel_calcom_booking(uid)
+            raise HTTPException(status_code=502, detail=f"Calendar service unavailable: {e}")
 
-        # Preserve 4xx if Cal.com said "slot taken", "invalid", etc.
-        http_status = (
-            response.status_code
-            if 400 <= response.status_code < 500
-            else 502
-        )
+        if response.status_code not in (200, 201):
+            # Если Cal.com отклонил один кусок — отменяем предыдущие (откат)
+            for uid in created_uids:
+                cancel_calcom_booking(uid)
+            
+            detail = response.json().get("message", response.text[:200])
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Cal.com rejected: {detail}"
+            )
 
-        logging.warning(
-            f"Cal.com rejected booking for application {application.id}: "
-            f"{response.status_code} {detail}"
-        )
-
-        raise HTTPException(
-            status_code=http_status,
-            detail=f"Cal.com rejected the booking: {detail or 'unknown error'}"
-        )
-
-    # 6. Persist to DB
-    try:
+        # 5. Сохраняем успешный кусок в БД
         data = response.json().get("data", {})
-    except Exception:
-        data = {}
+        booking_uid = data.get("uid")
+        created_uids.append(booking_uid)
 
-    booking_uid  = data.get("uid", "")
-    actual_start = data.get("start", request.booking_start)
-    actual_end   = data.get("end",   request.booking_end)
-
-    if not booking_uid:
-        raise HTTPException(
-            status_code=502,
-            detail="Cal.com did not return a booking uid."
-        )
-
-    try:
         interview = Interview(
             application_id = application.id,
             calcom_uid     = booking_uid,
-            booking_start  = parse_calcom_datetime(actual_start),
-            booking_end    = parse_calcom_datetime(actual_end),
+            booking_start  = chunk_start,
+            booking_end    = chunk_end,
             attendee_email = request.email     or application.email,
             attendee_name  = request.full_name or application.full_name,
             attendee_tz    = request.timezone,
@@ -1047,40 +1028,20 @@ def create_interview(
             status         = "confirmed",
         )
         db.add(interview)
-        db.commit()
-        db.refresh(interview)
-    except IntegrityError:
-        db.rollback()
-        # calcom_uid уже есть в БД (например, дубль по вебхуку)
-        raise HTTPException(
-            status_code=409,
-            detail="This booking already exists in our system."
-        )
-    except Exception as e:
-        db.rollback()
-        logging.exception("Failed to persist interview.")
-        # Внимание: бронь в Cal.com уже создана, но локально не сохранена.
-        # Для pet-проекта оставляем как 500, в продакшене нужна компенсация.
-        raise HTTPException(
-            status_code=500,
-            detail=f"Booking created in Cal.com but not saved locally: {e}"
-        )
+    
+    db.commit()
 
-    logging.info(
-        f"Interview booked: application={application.id}, "
-        f"cal.com_uid={booking_uid}, "
-        f"start={actual_start}, end={actual_end}"
-    )
-
+    # 6. Очищаем старые, если превысили лимит
     prune_old_interviews(db, keep_last=20)
+
+    logging.info(f"Booked {len(chunks)} chunks for application {application.id}")
 
     return {
         "message":        "Interview booked.",
         "application_id": application.id,
-        "booking_uid":    booking_uid,
-        "booking_start":  actual_start,
-        "booking_end":    actual_end,
-        "interview_id":   interview.id,
+        "booking_uid":    created_uids[0] if created_uids else "",
+        "booking_start":  request.booking_start,
+        "booking_end":    request.booking_end,
     }
 
 @app.get(
@@ -1225,46 +1186,39 @@ def initialize_demo_data(
 
 def generate_demo_interviews(db: Session, applications: list):
     """
-    Создает демо-брони в Cal.com и сохраняет их в БД.
-    Бронирует раз в 2 рабочих дня, начиная с сегодня, на 2 недели вперед.
+    Создает демо-брони в Cal.com и сохраняет их в БД по 30 минут.
     """
     if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
         logging.warning("Cal.com not configured, skipping demo interviews.")
         return 0
 
-    # Ищем пользователя, чтобы проверить рабочие часы (упрощенно берем с 9 до 16 UTC)
     start_date = datetime.utcnow().date()
     end_date = start_date + timedelta(days=14)
     
     created_count = 0
     current_date = start_date
-    durations = [30, 60, 90] # 30 мин, 1 час, 1.5 часа
 
     while current_date <= end_date:
-        # 5 - это суббота, 6 - воскресенье
+        # 5 - суббота, 6 - воскресенье (пропускаем)
         if current_date.weekday() < 5: 
-            
-            # Выбираем случайное время с 09:00 до 16:00 UTC
             random_hour = random.randint(9, 16)
             random_minute = random.choice([0, 30])
             
-            # Если это сегодня, убеждаемся, что время еще не прошло
             start_dt = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=random_hour, minutes=random_minute)
             
-            if start_dt > datetime.utcnow() + timedelta(hours=1): # хотя бы за час до брони
-                duration = random.choice(durations)
-                end_dt = start_dt + timedelta(minutes=duration)
-                
-                # Берем случайного кандидата из демо-заявок
+            if start_dt > datetime.utcnow() + timedelta(hours=1):
                 attendee = random.choice(applications)
+                
+                # Для тестов используем ваши реальные адреса, чтобы Cal.com пропустил
+                # (если в базе лежат example.com, этот replace их спасет)
+                safe_email = attendee.email.replace("example.com", "gmail.com")
                 
                 calcom_body = {
                     "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "lengthInMinutes": duration,
                     "eventTypeId": CALCOM_EVENT_TYPE,
                     "attendee": {
                         "name": attendee.full_name,
-                        "email": attendee.email,
+                        "email": safe_email,
                         "timeZone": "UTC",
                         "language": "en",
                     },
@@ -1288,20 +1242,20 @@ def generate_demo_interviews(db: Session, applications: list):
                             application_id=attendee.id,
                             calcom_uid=data.get("uid"),
                             booking_start=start_dt,
-                            booking_end=end_dt,
-                            attendee_email=attendee.email,
+                            booking_end=start_dt + timedelta(minutes=30),
+                            attendee_email=safe_email,
                             attendee_name=attendee.full_name,
                             attendee_tz="UTC",
                             status="confirmed"
                         ))
                         created_count += 1
+                    else:
+                        logging.error(f"Demo rejected: {r.text}")
                 except Exception as e:
                     logging.error(f"Demo booking failed: {e}")
 
-            # Пропускаем один рабочий день (как просили - раз в два дня)
             current_date += timedelta(days=2)
         else:
-            # Если попали на выходной, сдвигаемся на понедельник
             current_date += timedelta(days=1)
 
     db.commit()
