@@ -1029,6 +1029,7 @@ else:
             # -------------------------------------------------
 
             email_updated_flag = False
+            force_ui_reset = False
 
             for row in edited_data:
                 app_id = row.get("_app_id")
@@ -1064,7 +1065,8 @@ else:
                             t["email_copied"],
                             t["click_email_to_copy"]
                         )
-                        st.stop() # Останавливаемся, если нашли дубль
+                        force_ui_reset = True
+                        break # Выходим из цикла, чтобы не сохранять остальные
 
                     st.session_state.pop("email_duplicate_active", None)
 
@@ -1090,14 +1092,27 @@ else:
                             )
                         else:
                             st.error(detail)
-                        st.stop()
+                        force_ui_reset = True
+                        break
                     else:
                         detail = email_response.json().get("detail", "")
                         st.error(f'{t["email_update_error"]} {detail} (Error code: {email_response.status_code})')
-                        st.stop() # Останавливаемся при любой ошибке
+                        force_ui_reset = True
+                        break
 
+            # Если была ошибка (дубликат или сбой) — жестко сбрасываем UI
+            if force_ui_reset:
+                st.session_state["editor_version"] = (
+                    st.session_state.get("editor_version", 0) + 1
+                )
+                st.rerun()
+
+            # Если успешно сохранили — тоже перезапускаем, чтобы подтянуть чистые данные
             if email_updated_flag:
                 st.session_state["email_updated_message"] = True
+                st.session_state["editor_version"] = (
+                    st.session_state.get("editor_version", 0) + 1
+                )
                 st.rerun()            
             # # -------------------------------------------------
             # # Detect and save changed emails
