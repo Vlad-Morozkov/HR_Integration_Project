@@ -209,6 +209,8 @@ TEXTS = {
         #----------
 
         "demo_loaded":           "Demo data loaded successfully.",
+        "DemoData&BookingGeneration": 
+                "Demo data & cal.com in process. Please, wait ...",
         "demo_load_error":       "Could not load demo data.",
         "demo_load_error_check_connection":
                "Please check the connection and try again.",
@@ -313,6 +315,8 @@ TEXTS = {
         "reset_demo":            "Сбросить и загрузить Demo-данные",
 
         "demo_loaded":           "Demo-данные успешно загружены.",
+        "DemoData&BookingGeneration": 
+                "Идёт генерация демо-данных и записей в Cal.com. Пожалуйста, подождите...",        
         "demo_load_error":       "Не удалось загрузить Demo-данные.",
         "demo_load_error_check_connection":
                "Пожалуйста проверьте соединение и повторите запрос снова.",
@@ -1806,10 +1810,13 @@ else:
 
     if st.button(t["reset_demo"]):
 
-        response = requests.post(
-            f"{API_URL}/api/reset-demo",
-            timeout=10
-        )
+        # Увеличиваем таймаут, так как создание демо-броней занимает время
+        with st.spinner(t["DemoData&BookingGeneration"]):
+
+            response = requests.post(
+                f"{API_URL}/api/reset-demo",
+                timeout=90  # <-- УВЕЛИЧИЛИ ТАЙМАУТ
+            )
 
         if response.status_code == 200:
 
