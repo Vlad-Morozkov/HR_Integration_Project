@@ -1228,9 +1228,9 @@ def initialize_demo_data(
 
 def generate_demo_interviews(db: Session, applications: list):
     """
-    Создает демо-брони в Cal.com и сохраняет их в БД.
-    Брони разной длины (30, 60, 90 минут) нарезаются на 30-минутные куски,
-    так как Cal.com запрещает менять длительность через API.
+    Создает демо-брони на 2 недели.
+    Первый день гарантирует 2 брони встык для демонстрации цветов.
+    Остальные дни распределены по всему дню.
     """
     if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
         logging.warning("Cal.com not configured, skipping demo interviews.")
@@ -1241,26 +1241,101 @@ def generate_demo_interviews(db: Session, applications: list):
     
     bookings_created = 0
     current_date = start_date
-    durations = [30, 60, 90]  # Длительность в минутах: 30 мин, 1 час, 1.5 часа
+    durations = [30, 60, 90] 
+    
+    # Утро, обед, после обеда, вечер (распределение по всему дню)
+    preferred_hours = [9, 11, 14, 16] 
+    
+    # Флаг для создания специальной пары в первый же день
+    need_special_pair = True 
+
+    # Вспомогательная функция для отправки одного 30-минутного куска
+    def send_booking(attendee, start_dt, end_dt):
+        safe_email = attendee.email.replace("example.com", "gmail.com")
+        calcom_body = {
+            "start": start_dt.strftime("%Y-%m-%dT%H:%M:00.000Z"),
+            "eventTypeId": CALCOM_EVENT_TYPE,
+            "attendee": {
+                "name": attendee.full_name,
+                "email": safe_email,
+                "timeZone": "UTC",
+                "language": "en",
+            },
+        }
+        try:
+            r = requests.post(
+                "https://api.cal.com/v2/bookings",
+                json=calcom_body,
+                headers={
+                    "Authorization": f"Bearer {CALCOM_API_KEY}",
+                    "Content-Type": "application/json",
+                    "cal-api-version": "2024-08-13",
+                },
+                timeout=5
+            )
+            if r.status_code in (200, 201):
+                data = r.json().get("data", {})
+                db.add(Interview(
+                    application_id=attendee.id,
+                    calcom_uid=data.get("uid"),
+                    booking_start=start_dt,
+                    booking_end=end_dt,
+                    attendee_email=safe_email,
+                    attendee_name=attendee.full_name,
+                    attendee_tz="UTC",
+                    status="confirmed"
+                ))
+                return True
+            else:
+                logging.error(f"Demo rejected: {r.text}")
+                return False
+        except Exception as e:
+            logging.error(f"Demo booking failed: {e}")
+            return False
 
     while current_date <= end_date:
         # 5 - суббота, 6 - воскресенье (пропускаем)
         if current_date.weekday() < 5: 
-            # Максимальный час 15, чтобы 1.5 часа укладывались до 17:00 (рабочее время)
-            random_hour = random.randint(9, 15) 
+            
+            # --- СПЕЦИАЛЬНАЯ ПАРА ДЛЯ ЦВЕТОВ ---
+            if need_special_pair and len(applications) >= 2:
+                # Пробуем сделать пару в 10:00 утра
+                pair_start = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=10)
+                
+                # Если сегодня уже слишком поздно, пара перенесется на следующий рабочий день
+                if pair_start > datetime.utcnow() + timedelta(hours=1):
+                    # Берем двух разных кандидатов
+                    person1, person2 = random.sample(applications, 2)
+                    
+                    # Первый: 10:00 - 10:30
+                    if send_booking(person1, pair_start, pair_start + timedelta(minutes=30)):
+                        # Второй: 10:30 - 11:30 (1 час, нарежется на 2 блока по 30 мин)
+                        p2_start = pair_start + timedelta(minutes=30)
+                        p2_end = p2_start + timedelta(minutes=60)
+                        
+                        cur = p2_start
+                        while cur < p2_end:
+                            nxt = cur + timedelta(minutes=30)
+                            if nxt > p2_end: nxt = p2_end
+                            send_booking(person2, cur, nxt)
+                            cur = nxt
+                            
+                        bookings_created += 2
+                        need_special_pair = False # Пара создана
+                        current_date += timedelta(days=2)
+                        continue # Переходим к следующему дню
+
+            # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ (ОСТАЛЬНЫЕ ДНИ) ---
+            random_hour = random.choice(preferred_hours)
             random_minute = random.choice([0, 30])
             
             start_dt = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=random_hour, minutes=random_minute)
             
             if start_dt > datetime.utcnow() + timedelta(hours=1):
                 attendee = random.choice(applications)
-                safe_email = attendee.email.replace("example.com", "gmail.com")
-                
-                # Выбираем случайную длительность
                 duration = random.choice(durations)
                 end_dt = start_dt + timedelta(minutes=duration)
                 
-                # Нарезаем на 30-минутные куски для Cal.com
                 current_chunk_start = start_dt
                 is_success = True
                 
@@ -1269,47 +1344,7 @@ def generate_demo_interviews(db: Session, applications: list):
                     if next_chunk_end > end_dt:
                         next_chunk_end = end_dt
                         
-                    calcom_body = {
-                        "start": current_chunk_start.strftime("%Y-%m-%dT%H:%M:00.000Z"),
-                        "eventTypeId": CALCOM_EVENT_TYPE,
-                        "attendee": {
-                            "name": attendee.full_name,
-                            "email": safe_email,
-                            "timeZone": "UTC",
-                            "language": "en",
-                        },
-                    }
-                    
-                    try:
-                        r = requests.post(
-                            "https://api.cal.com/v2/bookings",
-                            json=calcom_body,
-                            headers={
-                                "Authorization": f"Bearer {CALCOM_API_KEY}",
-                                "Content-Type": "application/json",
-                                "cal-api-version": "2024-08-13",
-                            },
-                            timeout=5
-                        )
-                        
-                        if r.status_code in (200, 201):
-                            data = r.json().get("data", {})
-                            db.add(Interview(
-                                application_id=attendee.id,
-                                calcom_uid=data.get("uid"),
-                                booking_start=current_chunk_start,
-                                booking_end=next_chunk_end,
-                                attendee_email=safe_email,
-                                attendee_name=attendee.full_name,
-                                attendee_tz="UTC",
-                                status="confirmed"
-                            ))
-                        else:
-                            logging.error(f"Demo rejected: {r.text}")
-                            is_success = False
-                            break # Прерываем, если один кусок не удался
-                    except Exception as e:
-                        logging.error(f"Demo booking failed: {e}")
+                    if not send_booking(attendee, current_chunk_start, next_chunk_end):
                         is_success = False
                         break
                         
