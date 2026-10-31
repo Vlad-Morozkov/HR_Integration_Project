@@ -840,8 +840,9 @@ else:
     # if "booked_slots" not in st.session_state:
     #     st.session_state["booked_slots"] = []   # list of {"start","end","application_id"}
 
-    if "calendar_version" not in st.session_state:
-        st.session_state["calendar_version"] = 0
+    # not need
+    # if "calendar_version" not in st.session_state:
+    #     st.session_state["calendar_version"] = 0
 
     # -----------------------------------------------------
     # Filters
@@ -1342,7 +1343,7 @@ else:
                 calendar_result = calendar(
                     events=calendar_events,
                     options=calendar_options,
-                    key=f"booking_calendar_{st.session_state['calendar_version']}",
+                    key="booking_calendar", # <-- ФИКСИРОВАННЫЙ КЛЮЧ
                 )
 
                 # -------------------------------------------------
@@ -1511,7 +1512,7 @@ else:
                         # 3. Clear selection & remount calendar
                         st.session_state.pop("booking_start", None)
                         st.session_state.pop("booking_end", None)
-                        st.session_state["calendar_version"] += 1
+                        # st.session_state["calendar_version"] += 1
                         st.session_state["interview_ready_message"] = True
                         st.rerun()
 
