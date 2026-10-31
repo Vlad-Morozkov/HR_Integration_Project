@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import os
 import uuid
@@ -14,6 +15,8 @@ import smtplib
 from email.message import EmailMessage
 #
 
+import json
+
 from dotenv import load_dotenv
 
 from fastapi import (
@@ -21,7 +24,8 @@ from fastapi import (
     Depends,
     HTTPException,
     status,
-    Form
+    Form,
+    Request
 )
 
 from pydantic import BaseModel
@@ -44,6 +48,27 @@ from uuid import UUID
 
 from datetime import timezone
 
+import hmac
+import hashlib
+
+CALCOM_WEBHOOK_SECRET = os.getenv("CALCOM_WEBHOOK_SECRET")
+
+
+class CalcomWebhookPayload(BaseModel):
+    triggerEvent: str
+    payload: dict
+
+
+def verify_calcom_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    if not signature_header or not CALCOM_WEBHOOK_SECRET:
+        return False
+    expected = hmac.new(
+        CALCOM_WEBHOOK_SECRET.encode(),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(signature_header, expected)
+
 # ----------------------------------
 # Timezone naive-UTC datetime return for SQLite и Postgres
 # ----------------------------------
@@ -57,6 +82,41 @@ def parse_calcom_datetime(value: str) -> datetime:
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
+
+def cancel_calcom_booking(booking_uid: str) -> bool:
+    """
+    Отменяет бронь в Cal.com.
+    Возвращает True при успехе (200/204), иначе False.
+    """
+    if not CALCOM_API_KEY:
+        logging.warning("CALCOM_API_KEY missing, cannot cancel booking.")
+        return False
+
+    url = f"https://api.cal.com/v2/bookings/{booking_uid}/cancel"
+    headers = {
+        "Authorization":   f"Bearer {CALCOM_API_KEY}",
+        "Content-Type":    "application/json",
+        "cal-api-version": "2024-08-13",
+    }
+    body = {
+        "cancellationReason": "Demo reset",
+        # cancelSubsequentBookings только для повторяющихся броней,
+        # для обычной интервью-брони оставляем False или не передаём.
+    }
+
+    try:
+        r = requests.post(url, json=body, headers=headers, timeout=10)
+        if r.status_code in (200, 204):
+            logging.info(f"Cal.com booking {booking_uid} cancelled.")
+            return True
+        logging.warning(
+            f"Cal.com cancel failed for {booking_uid}: "
+            f"{r.status_code} {r.text[:200]}"
+        )
+        return False
+    except requests.RequestException as e:
+        logging.exception(f"Cal.com cancel request error: {e}")
+        return False
 
 # ----------------------------------
 # Interview tablesqlite3 hr_project.db ".schema interviews"
@@ -394,6 +454,52 @@ class InterviewRequest(BaseModel):
     support_email:  str = ""
     timezone:       str = "UTC"  # TODO: populate from browser detection later
     language:       str = "en"   # TODO: populate from browser detection later
+
+# ==========================================
+# API: Webhook cal.com
+# ==========================================
+
+@app.post("/api/webhooks/calcom")
+async def calcom_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Принимает события от Cal.com.
+    Проверяет подпись X-Cal-Signature-256.
+    На BOOKING_CANCELLED помечает бронь как отменённую.
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("X-Cal-Signature-256")
+
+    if not verify_calcom_signature(raw_body, signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        event = CalcomWebhookPayload(**json.loads(raw_body))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    trigger = event.triggerEvent
+    data = event.payload
+
+    if trigger == "BOOKING_CANCELLED":
+        booking_uid = data.get("uid")
+        if not booking_uid:
+            raise HTTPException(status_code=400, detail="Missing booking uid")
+
+        interview = db.query(Interview).filter(
+            Interview.calcom_uid == booking_uid,
+            Interview.status == "confirmed",
+        ).first()
+
+        if interview:
+            interview.status = "cancelled"
+            interview.cancelled_at = datetime.utcnow()
+            db.commit()
+            logging.info(f"Interview {interview.id} cancelled via webhook (cal.com uid={booking_uid})")
+        else:
+            logging.warning(f"Webhook cancellation for unknown/ already-cancelled uid={booking_uid}")
+
+    # BOOKING_CREATED / RESCHEDULED можно обработать позже
+    return {"status": "ok"}
 
 # ==========================================
 # API: CREATE APPLICATION
@@ -1092,7 +1198,27 @@ def reset_demo_data(
 
     try:
 
-        # 0. Delete interviews first — they reference applications
+        # 0a. Cancel all confirmed bookings in Cal.com BEFORE deleting locally
+        confirmed_interviews = db.query(Interview).filter(
+            Interview.status == "confirmed"
+        ).all()
+
+        cancelled_ok = 0
+        cancelled_fail = 0
+
+        for interview in confirmed_interviews:
+            if cancel_calcom_booking(interview.calcom_uid):
+                cancelled_ok += 1
+            else:
+                cancelled_fail += 1
+
+        if cancelled_fail:
+            logging.warning(
+                f"Reset demo: {cancelled_fail} Cal.com bookings "
+                f"could not be cancelled (they may still exist)."
+            )
+
+        # 0b. Delete interviews locally
         db.query(Interview).delete(synchronize_session=False)
 
         # 1. Delete existing applications
