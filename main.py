@@ -1227,29 +1227,36 @@ def initialize_demo_data(
 # ==========================================
 
 def generate_demo_interviews(db: Session, applications: list, tz_offset: float = 0.0):
-    """
-    Создает демо-брони на 2 недели.
-    Использует tz_offset для корректной генерации времени в часовом поясе пользователя.
-    """
+    logging.info(f"DEBUG: Генерация демо. Получен tz_offset = {tz_offset}")
+    
     if not CALCOM_API_KEY or not CALCOM_EVENT_TYPE:
         logging.warning("Cal.com not configured, skipping demo interviews.")
         return 0
 
-    start_date = datetime.utcnow().date()
-    end_date = start_date + timedelta(days=14)
-    
-    bookings_created = 0
-    current_date = start_date
-    durations = [30, 60, 90] 
-    
-    # Генерируем часы в UTC (например, если tz_offset = 5, а мы хотим 09:00 по местному,
-    # то в UTC это 04:00. Значит: 9 - 5 = 4).
-    # Целевые часы по местному времени: 9:00, 11:00, 13:00, 15:00
-    local_hours = [9, 11, 13, 15]
-    preferred_hours = [h - int(tz_offset) for h in local_hours] 
-    
-    need_special_pair = True 
+    # Безопасный выбор кандидата (чтобы не выйти за пределы списка, если кандидатов мало)
+    def get_app(idx):
+        return applications[idx % len(applications)]
 
+    # ЖЕСТКИЙ ГРАФИК: (день от сегодня, час, минута, длительность, индекс_кандидата)
+    demo_schedule = [
+        # --- Кандидат 1 (Индекс 0): 3 встречи, всего 2.5 часа ---
+        (0, 10, 0, 30, 0),   # День 1: 10:00 - 10:30
+        (2, 14, 0, 60, 0),   # День 3: 14:00 - 15:00
+        (4, 11, 0, 60, 0),   # День 5: 11:00 - 12:00
+
+        # --- Кандидат 2 (Индекс 1): 2 встречи, всего 2 часа (0.5 + 1.5) ---
+        (0, 10, 30, 30, 1),  # День 1: 10:30 - 11:00 (Встык к Кандидату 1!)
+        (6, 14, 30, 90, 1),  # День 7: 14:30 - 16:00 (1.5 часа)
+
+        # --- Остальные кандидаты: по 1 встрече (максимум 1 час) ---
+        (2, 9, 0, 60, 2),    # Кандидат 3, День 3: 09:00 - 10:00 (1 час)
+        (4, 15, 0, 30, 3),   # Кандидат 4, День 5: 15:00 - 15:30 (30 мин)
+        (6, 9, 0, 60, 4),    # Кандидат 5, День 7: 09:00 - 10:00 (1 час)
+        (8, 12, 0, 30, 5),   # Кандидат 6, День 9: 12:00 - 12:30 (30 мин)
+    ]
+
+    bookings_created = 0
+    
     def send_booking(attendee, start_dt, end_dt):
         safe_email = attendee.email.replace("example.com", "gmail.com")
         calcom_body = {
@@ -1293,66 +1300,42 @@ def generate_demo_interviews(db: Session, applications: list, tz_offset: float =
             logging.error(f"Demo booking failed: {e}")
             return False
 
-    while current_date <= end_date:
-        if current_date.weekday() < 5: 
-            
-            # --- СПЕЦИАЛЬНАЯ ПАРА ДЛЯ ЦВЕТОВ ---
-            if need_special_pair and len(applications) >= 2:
-                # 10:00 утра по местному времени.
-                # В UTC это (10 - tz_offset)
-                pair_start_utc_hour = 10 - int(tz_offset)
-                pair_start = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=pair_start_utc_hour)
-                
-                if pair_start > datetime.utcnow() + timedelta(hours=1):
-                    person1, person2 = random.sample(applications, 2)
-                    
-                    if send_booking(person1, pair_start, pair_start + timedelta(minutes=30)):
-                        p2_start = pair_start + timedelta(minutes=30)
-                        p2_end = p2_start + timedelta(minutes=60)
-                        
-                        cur = p2_start
-                        while cur < p2_end:
-                            nxt = cur + timedelta(minutes=30)
-                            if nxt > p2_end: nxt = p2_end
-                            send_booking(person2, cur, nxt)
-                            cur = nxt
-                            
-                        bookings_created += 2
-                        need_special_pair = False 
-                        current_date += timedelta(days=2)
-                        continue 
+    base_date = datetime.utcnow().date()
+    if datetime.utcnow().hour >= 15:
+        base_date += timedelta(days=1)
 
-            # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ ---
-            random_hour = random.choice(preferred_hours)
-            random_minute = random.choice([0, 30])
-            
-            start_dt = datetime.combine(current_date, datetime.min.time()) + timedelta(hours=random_hour, minutes=random_minute)
-            
-            if start_dt > datetime.utcnow() + timedelta(hours=1):
-                attendee = random.choice(applications)
-                duration = random.choice(durations)
-                end_dt = start_dt + timedelta(minutes=duration)
-                
-                current_chunk_start = start_dt
-                is_success = True
-                
-                while current_chunk_start < end_dt:
-                    next_chunk_end = current_chunk_start + timedelta(minutes=30)
-                    if next_chunk_end > end_dt:
-                        next_chunk_end = end_dt
-                        
-                    if not send_booking(attendee, current_chunk_start, next_chunk_end):
-                        is_success = False
-                        break
-                        
-                    current_chunk_start = next_chunk_end
-                
-                if is_success:
-                    bookings_created += 1
+    # Проходим по нашему жесткому графику
+    for day_offset, local_hour, local_minute, duration, app_index in demo_schedule:
+        # Пропускаем выходные
+        target_date = base_date + timedelta(days=day_offset)
+        while target_date.weekday() >= 5:
+            target_date += timedelta(days=1)
 
-            current_date += timedelta(days=2)
-        else:
-            current_date += timedelta(days=1)
+        # Переводим локальное время в UTC
+        utc_hour = local_hour - int(tz_offset)
+        start_dt = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=utc_hour, minutes=local_minute)
+        end_dt = start_dt + timedelta(minutes=duration)
+
+        # Получаем нужного кандидата по индексу
+        attendee = get_app(app_index)
+        
+        current_chunk_start = start_dt
+        is_success = True
+        
+        # Нарезаем длинные встречи на куски по 30 минут для Cal.com
+        while current_chunk_start < end_dt:
+            next_chunk_end = current_chunk_start + timedelta(minutes=30)
+            if next_chunk_end > end_dt:
+                next_chunk_end = end_dt
+                
+            if not send_booking(attendee, current_chunk_start, next_chunk_end):
+                is_success = False
+                break
+                
+            current_chunk_start = next_chunk_end
+            
+        if is_success:
+            bookings_created += 1
 
     db.commit()
     return bookings_created
@@ -1382,6 +1365,9 @@ def reset_demo_data(
     4. 
     Seeds 3 demo applications.        
     Загружает 3 demo отклика
+    5.
+    Ensures 6 demo booking slots.
+    Создаёт 6 demo бронирований.
     """
 
     try:

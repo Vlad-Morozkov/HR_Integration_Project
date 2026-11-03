@@ -1,0 +1,53 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+<script>
+    let timezoneSent = false;
+
+    function sendMessage(type, data) {
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: type,
+            ...data
+        }, "*");
+    }
+
+    function detectAndSendTimezone() {
+        if (timezoneSent) return;
+
+        const timezone =
+            Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        const offset = -new Date().getTimezoneOffset();
+
+        sendMessage("streamlit:setComponentValue", {
+            value: {
+                timezone: timezone,
+                offset: offset
+            },
+            dataType: "json"
+        });
+
+        timezoneSent = true;
+    }
+
+    window.addEventListener("message", function(event) {
+        if (event.data.type === "streamlit:render") {
+            detectAndSendTimezone();
+        }
+    });
+
+    sendMessage("streamlit:componentReady", {
+        apiVersion: 1
+    });
+
+    sendMessage("streamlit:setFrameHeight", {
+        height: 1
+    });
+</script>
+</body>
+</html>

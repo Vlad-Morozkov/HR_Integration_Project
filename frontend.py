@@ -3,6 +3,8 @@ import requests
 import re
 import pandas as pd
 
+from timezone_component import detect_timezone
+
 # added streamlit_calendar
 from streamlit_calendar import calendar
 
@@ -13,38 +15,72 @@ import html
 import json
 import streamlit.components.v1 as components
 
-# --- АВТООПРЕДЕЛЕНИЕ ЯЗЫКА И ЧАСОВОГО ПОЯСА ---
-# Считываем TZ и язык браузера. Если их нет в URL, перезагружаем страницу с ними.
-components.html(
-    """
-    <script>
-        const url = new URL(window.parent.location);
-        if (!url.searchParams.has('user_tz_offset')) {
-            // Получаем сдвиг в часах (например, 5 для UTC+5)
-            const tzOffset = -new Date().getTimezoneOffset() / 60; 
-            const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone; 
-            const lang = navigator.language.split('-')[0]; // 'ru' или 'en'
-            
-            url.searchParams.set('user_tz_offset', tzOffset);
-            url.searchParams.set('user_tz_name', tzName);
-            url.searchParams.set('user_lang', lang);
-            
-            window.parent.location.href = url.toString();
-        }
-    </script>
-    """,
-    height=0, width=0
+
+# 1. САМАЯ ПЕРВАЯ КОМАНДА STREAMLIT
+st.set_page_config(
+    page_title="HR Hiring System",
+    layout="wide"
 )
 
-# Забираем данные из URL в Python
-user_tz_offset = float(st.query_params.get("user_tz_offset", 0.0))
-user_tz_name = st.query_params.get("user_tz_name", "UTC")
-browser_lang = st.query_params.get("user_lang", "en")
+# Detect user's browser timezone
+timezone_data = detect_timezone()
 
-# Сохраняем в session_state, чтобы использовать дальше
-st.session_state["user_tz_offset"] = user_tz_offset
-st.session_state["user_tz_name"] = user_tz_name
-# ------------------------------------------------
+if timezone_data:
+    st.session_state["user_tz_name"] = timezone_data["timezone"]
+    st.session_state["user_tz_offset"] = timezone_data["offset"] / 60.0
+else:
+    st.session_state.setdefault("user_tz_name", "UTC")
+    st.session_state.setdefault("user_tz_offset", 0.0)
+
+# =========================================================
+# AUTOMATIC TIMEZONE DETECTION
+# =========================================================
+
+timezone_data = components.html(
+    """
+    <script>
+        const timezone =
+            Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        const offset =
+            new Date().getTimezoneOffset();
+
+        const data = {
+            timezone: timezone,
+            offset: -offset
+        };
+
+        window.parent.postMessage({
+            isStreamlitMessage: true,
+            type: "streamlit:setComponentValue",
+            value: JSON.stringify(data)
+        }, "*");
+    </script>
+    """,
+    height=0
+)
+
+# =========================================================
+# AUTOMATIC LANGUAGE DETECTION
+# =========================================================
+
+accept_lang = st.context.headers.get(
+    "Accept-Language", "en"
+)
+
+browser_lang = "en"
+
+for item in accept_lang.split(","):
+
+    code = item.split(";")[0].strip()
+    code = code.split("-")[0].lower()
+
+    if code in ("en", "ru"):
+        browser_lang = code
+        break
+
+default_index = 1 if browser_lang == "ru" else 0
+
 
 def show_duplicate_email_notice(
     message_template,
@@ -64,75 +100,12 @@ def show_duplicate_email_notice(
     js_email = json.dumps(str(email))
     js_copied = json.dumps(copied_message)
 
-    components.html(
-        f"""
-        <div style="
-            background-color: #FFF4E5;
-            border: 1px solid #F0AD4E;
-            border-radius: 8px;
-            padding: 12px;
-            color: #663C00;
-            font-family: sans-serif;
-            font-size: 14px;
-            line-height: 1.6;
-        ">
-            {safe_before}<button
-                id="copy-email"
-                type="button"
-                title="{safe_copy_hint}"
-                style="
-                    border: none;
-                    background: transparent;
-                    color: #B45309;
-                    text-decoration: underline;
-                    cursor: pointer;
-                    font: inherit;
-                    padding: 0 2px;
-                "
-            >{safe_email}</button>{safe_after}
-
-            <div
-                id="copy-status"
-                style="font-size: 12px; margin-top: 4px;"
-            >{safe_cancel_hint}</div>
-        </div>
-
-        <script>
-            const emailToCopy = {js_email};
-            const copiedMessage = {js_copied};
-
-            document.getElementById("copy-email")
-                .addEventListener("click", async () => {{
-                    const status =
-                        document.getElementById("copy-status");
-
-                    try {{
-                        await navigator.clipboard.writeText(emailToCopy);
-                        status.textContent = copiedMessage;
-                    }} catch (error) {{
-                        status.textContent =
-                            "Copy unavailable. Please copy the email manually.";
-                    }}
-                }});
-        </script>
-        """,
-        height=90,
-    )
-
-
-
 
 # Local
-# API_URL = "http://127.0.0.1:8000" 
+API_URL = "http://127.0.0.1:8000" 
 
 # Prod
-API_URL = "https://hr-integration-project-swart.vercel.app"
-
-
-st.set_page_config(
-    page_title="HR Hiring System",
-    layout="wide"
-)
+# API_URL = "https://hr-integration-project-swart.vercel.app"
 
 
 # =========================================================
@@ -1161,104 +1134,7 @@ else:
             if st.session_state.pop("email_updated_message", False):
                 st.success(t["email_updated"])
 
-            # # -------------------------------------------------
-            # # Detect and save changed emails
-            # # -------------------------------------------------
-
-            # for index, row in enumerate(edited_data):
-
-            #     original_email = applications[index]["email"]
-            #     edited_email = row[t["email"]]
-
-            #     if edited_email != original_email:
-
-            #         edited_email_normalized = str(
-            #             edited_email
-            #         ).strip().casefold()
-
-            #         duplicate_exists = any(
-            #             application["id"] != applications[index]["id"]
-            #             and application["position_id"]
-            #                 == applications[index]["position_id"]
-            #             and application["status"] in ("New", "Hired")
-            #             and str(application["email"]).strip().casefold()
-            #                 == edited_email_normalized
-            #             for application in all_applications
-            #         )
-
-            #         if duplicate_exists:
-            #             st.session_state["email_duplicate_active"] = (
-            #                 applications[index]["id"]
-            #             )
-                       
-            #             # added html clickable form to copy email in notifications
-            #             show_duplicate_email_notice(
-            #                 t["email_duplicate_active"],
-            #                 edited_email,
-            #                 t["cancel_email_changes"],
-            #                 t["email_copied"],
-            #                 t["click_email_to_copy"]
-            #             )
-
-            #             break
-
-            #         st.session_state.pop("email_duplicate_active", None)
-
-            #         email_response = requests.patch(
-
-            #             f"{API_URL}/api/applications/"
-            #             f"{applications[index]['id']}/email",
-
-            #             json={
-            #                 "email": edited_email
-            #             },
-
-            #             timeout=5
-            #         )
-
-            #         if email_response.status_code == 200:
-
-            #             st.session_state["email_updated_message"] = True
-            #             st.rerun()
-                    
-         
-            #         elif email_response.status_code == 409:
-
-            #             st.session_state["email_duplicate_active"] = applications[index]["id"]
-
-            #             detail = email_response.json().get(
-            #                 "detail",
-            #                 t["email_duplicate_active"]
-            #             )
-
-            #             if "already used for an active application" in detail:
-            #                 show_duplicate_email_notice(
-            #                     t["email_duplicate_active"],
-            #                     edited_email,
-            #                     t["cancel_email_changes"],
-            #                     t["email_copied"],
-            #                     t["click_email_to_copy"]
-            #                 )
-            #             else:
-            #                 st.error(detail)
-
-
-            #         else:
-            #             detail = email_response.json().get(
-            #                 "detail",
-            #                 ""
-            #             )
-
-            #             st.error(
-            #                 f'{t["email_update_error"]} '
-            #                 f'{detail} '
-            #                 f'(Error code: {email_response.status_code})'
-            #             )
-
-            #         break
-
-            # if st.session_state.pop("email_updated_message", False):
-            #     st.success(t["email_updated"])        
+                  
 
             # ---------------------------------------------
             # Find selected rows
@@ -1595,7 +1471,7 @@ else:
                     # Please select a time slot on the calendar
 
                 # DEBUG — remove this line once you confirm the dict shape
-                st.write("DEBUG calendar_result:", calendar_result)
+                # st.write("DEBUG calendar_result:", calendar_result)
 
                 # -----------------------------------------
                 # Interview — book the slot & prepare payload
@@ -1844,22 +1720,16 @@ else:
     if st.session_state.pop("position_added_message", False):
         st.success(t["position_added"])
 
-    # -----------------------------------------------------
-    # Reset & Load Demo Data
-    # -----------------------------------------------------
-
     if st.button(t["reset_demo"]):
-
-        # Берем сдвиг из нашего session_state
+        
+        # Get the browser-detected timezone offset
         tz_offset = st.session_state.get("user_tz_offset", 0.0)
-
-        # Увеличиваем таймаут, так как создание демо-броней занимает время
+        
         with st.spinner(t["DemoData&BookingGeneration"]):
-
             response = requests.post(
                 f"{API_URL}/api/reset-demo",
-                params={"tz_offset": tz_offset},  # <-- ПЕРЕДАЕМ СДВИГ                
-                timeout=90  # <-- УВЕЛИЧИЛИ ТАЙМАУТ
+                params={"tz_offset": tz_offset},  # <-- Передаем сдвиг
+                timeout=90
             )
 
         if response.status_code == 200:
