@@ -253,6 +253,11 @@ TEXTS = {
         "hire":                  "Hire",
         "reject":                "Reject",
 
+        # Calendar
+
+        "calendar":        "Calendar",
+        "calendar_booked": "Booked",
+
         # Application's notiffications
 
         "select_slot_first":     "Please select a free time slot on the calendar.",
@@ -356,6 +361,14 @@ TEXTS = {
         "Interview":             "Собеседовать",
         "hire":                  "Принять на работу",
         "reject":                "Отклонить",
+
+
+
+        # Calendar
+
+        "calendar":        "Календарь",
+        "calendar_booked": "Занято",
+
 
         # Сообщения 
         
@@ -1136,76 +1149,59 @@ else:
 
                   
 
-            # ---------------------------------------------
+            # Look here
+            # =========================================
+            # Calendar expand/collapse state (default: collapsed)
+            # =========================================
+            if "calendar_expanded" not in st.session_state:
+                st.session_state["calendar_expanded"] = False
+            if "calendar_version" not in st.session_state:
+                st.session_state["calendar_version"] = 0                
+
+            # =========================================
             # Find selected rows
-            # ---------------------------------------------
-
+            # =========================================
             selected_rows = [
-
                 index
-
                 for index, row
                 in enumerate(edited_data)
-
                 if row[t["select"]]
             ]
 
+            # Safe defaults — handlers below always have something to read
+            review_clicked = False
+            interview_clicked = False
+            hire_clicked = False
+            reject_clicked = False
+            selected_application = None
+            selected_application_id = None
+            edited_email = None
+            email_is_valid = False
+            can_process = False
+            email_duplicate_for_selected = False
 
-            # ---------------------------------------------
-            # Nothing selected
-            # ---------------------------------------------
-
+            # =========================================
+            # Selection state
+            # =========================================
             if len(selected_rows) == 0:
-
                 st.info(t["select_one"])
 
-
-            # ---------------------------------------------
-            # More than one selected
-            # ---------------------------------------------
-
             elif len(selected_rows) > 1:
-
                 st.warning(t["select_only_one"])
 
-
-            # ---------------------------------------------
-            # Exactly one selected
-            # ---------------------------------------------
-
             else:
+                selected_index = selected_rows[0]
+                selected_application = applications[selected_index]
+                selected_application_id = selected_application["id"]
 
-                selected_index = (
-                    selected_rows[0]
-                )
-
-
-                selected_application = (
-                    applications[
-                        selected_index
-                    ]
-                )
-
-
-                selected_application_id = (
-                    selected_application[
-                        "id"
-                    ]
-                )
-
-                # Clear any pending selection when the user switches rows
+                # New selection → clear old slot, AUTO-EXPAND calendar
                 if st.session_state.get("active_application_id") != selected_application_id:
                     st.session_state["active_application_id"] = selected_application_id
                     st.session_state.pop("booking_start", None)
                     st.session_state.pop("booking_end", None)
+                    st.session_state["calendar_expanded"] = True
 
-                edited_email = (
-                    edited_data[
-                        selected_index
-                    ][t["email"]]
-                )
-
-
+                edited_email = edited_data[selected_index][t["email"]]
                 email_is_valid = bool(
                     edited_email
                     and re.fullmatch(
@@ -1214,34 +1210,25 @@ else:
                     )
                 )
 
-                # -----------------------------------------
-                # Candidate status
-                # -----------------------------------------
-
-                can_process = (
-                    selected_application[
-                        "status"
-                    ] == "New"
-                )
-
-
+                can_process = selected_application["status"] == "New"
                 email_duplicate_for_selected = (
                     st.session_state.get("email_duplicate_active")
                     == selected_application_id
                 )
 
+                # Needed for Interview button — enabled only if a slot is picked
+                slot_selected = bool(
+                    st.session_state.get("booking_start")
+                    and st.session_state.get("booking_end")
+                )
 
                 # -----------------------------------------
-                # Actions
+                # Action buttons
                 # -----------------------------------------
-
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
-                    # TODO: logic to be added later
-                    review_clicked = st.button(
-                        t["review"]
-                    )
+                    review_clicked = st.button(t["review"])
 
                 with col2:
                     interview_clicked = st.button(
@@ -1250,6 +1237,7 @@ else:
                             not can_process
                             or not email_is_valid
                             or email_duplicate_for_selected
+                            or not slot_selected        # <-- NEW: requires a slot
                         )
                     )
 
@@ -1263,11 +1251,6 @@ else:
                         )
                     )
 
-                    # -----------------------------------------
-                    # Check whether candidate is already hired
-                    # -----------------------------------------
-
-                    
                     same_email_hired = (
                         selected_application["status"] == "New"
                         and any(
@@ -1282,7 +1265,6 @@ else:
                     if same_email_hired:
                         st.warning(t["candidate_already_hired"])
 
-
                 with col4:
                     reject_clicked = st.button(
                         t["reject"],
@@ -1293,23 +1275,49 @@ else:
                         )
                     )
 
+            # =========================================
+            # Calendar toggle + guard
+            # =========================================
+            if "calendar_version" not in st.session_state:
+                st.session_state["calendar_version"] = 0
 
-                # -------------------------------------------------
-                # Booking calendar (below Hire / Reject)
-                # -------------------------------------------------
+            def _toggle_cal():
+                new_state = not st.session_state.get("calendar_expanded", False)
+                st.session_state["calendar_expanded"] = new_state
+                if not new_state:
+                    st.session_state.pop("booking_start", None)
+                    st.session_state.pop("booking_end", None)
+                # Убиваем кэш календаря, чтобы он не вернул старый dateClick
+                st.session_state["calendar_version"] += 1
 
+            toggle_label = (
+                f"▲ {t.get('collapse_calendar', 'Collapse calendar')}"
+                if st.session_state.get("calendar_expanded", False)
+                else f"▼ {t.get('expand_calendar', 'Expand calendar')}"
+            )
+            st.button(toggle_label, key="calendar_toggle_button", on_click=_toggle_cal)
+
+            # ГАРД (оставляем)
+            if not st.session_state.get("calendar_expanded", False):
+                st.session_state.pop("booking_start", None)
+                st.session_state.pop("booking_end", None)
+            
+            # =========================================
+            # Calendar — rendered only when expanded
+            # =========================================
+            if st.session_state["calendar_expanded"]:
                 calendar_options = {
                     "initialView": "timeGridWeek",
                     "selectable": True,
-                    "selectOverlap": False,      # can't select over a booked slot
+                    "selectOverlap": False,
                     "slotMinTime": "09:00:00",
                     "slotMaxTime": "18:00:00",
                     "slotDuration": "00:30:00",
                     "snapDuration": "00:30:00",
-                    "firstDay": 1 if lang == "ru" else 0,   # <-- ADD
+                    "firstDay": 1 if lang == "ru" else 0,
                     "validRange": {
                         "start": date.today().isoformat()
-                    },                                               # <<< ADD
+                    },
                     "headerToolbar": {
                         "left": "prev,next today",
                         "center": "title",
@@ -1319,7 +1327,7 @@ else:
                     "firstDay": 1 if lang == "ru" else 0,
                 }
 
-                # Fetch booked slots from backend (DB is the source of truth)
+                # Fetch booked slots from backend
                 try:
                     booked_resp = requests.get(
                         f"{API_URL}/api/interviews/booked-slots",
@@ -1331,284 +1339,192 @@ else:
                     st.warning(f"Could not load booked slots: {e}")
                     booked_slots = []
 
-                # -------------------------------------------------
-                # Нарезаем брони на 30-минутные блоки для красивого отображения
-                # -------------------------------------------------
+                # Split bookings into 30-min chunks for nicer display
                 calendar_events = []
-                
-                # Палитра цветов для разных кандидатов (Красный, Синий, Зеленый, Желтый, Фиолетовый)
                 color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
                 app_color_map = {}
 
                 for slot in booked_slots:
                     app_id = slot.get("application_id", "")
-                    
-                    # Назначаем уникальный цвет для каждого ID заявки
                     if app_id not in app_color_map:
                         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
-                    
                     slot_color = app_color_map[app_id]
-                    
+
                     s_str = slot["start"].replace("Z", "+00:00")
                     e_str = slot["end"].replace("Z", "+00:00")
-                    
                     s_dt = datetime.fromisoformat(s_str)
                     e_dt = datetime.fromisoformat(e_str)
-                    
+
                     current = s_dt
                     is_first = True
-                    
                     while current < e_dt:
                         next_chunk = current + timedelta(minutes=30)
                         if next_chunk > e_dt:
                             next_chunk = e_dt
-                            
                         calendar_events.append({
-                            "title": "Booked" if is_first else "", 
+                            "title": "Booked" if is_first else "",
                             "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            "end":   next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            "color": slot_color,  # <--- Динамический цвет
+                            "end": next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                            "color": slot_color,
                         })
                         current = next_chunk
                         is_first = False
 
-                # -------------------------------------------------
-                # Вызов календаря
-                # -------------------------------------------------
-
                 calendar_result = calendar(
                     events=calendar_events,
                     options=calendar_options,
-                    key="booking_calendar", # <-- ФИКСИРОВАННЫЙ КЛЮЧ
+                    key=f"booking_calendar_v{st.session_state['calendar_version']}",  # <--- ВАЖНО
                 )
 
-                # -------------------------------------------------
-                # Handle drag-select (multi-slot) → free slots only
-                # -------------------------------------------------
-
+                # ----- Handle drag-select -----
                 if calendar_result and calendar_result.get("callback") == "select":
                     sel = calendar_result["select"]
-
-                    sel_start = datetime.fromisoformat(
-                        sel["start"].replace("Z", "+00:00")
-                    )
-
+                    sel_start = datetime.fromisoformat(sel["start"].replace("Z", "+00:00"))
                     if sel_start.replace(tzinfo=None) < datetime.utcnow():
-                        st.warning(
-                           t["slot_in_past"]
-                            )
+                        st.warning(t["slot_in_past"])
                     else:
-                        st.session_state["booking_start"] = sel["start"]
-                        st.session_state["booking_end"]   = sel["end"]
+                        if (
+                            st.session_state.get("booking_start") != sel["start"]
+                            or st.session_state.get("booking_end") != sel["end"]
+                        ):
+                            st.session_state["booking_start"] = sel["start"]
+                            st.session_state["booking_end"] = sel["end"]
+                            st.rerun()
 
-                # -------------------------------------------------
-                # Handle single-click → treat as one 30-min slot
-                # -------------------------------------------------
-
+                # ----- Handle single-click -----
                 if calendar_result and calendar_result.get("callback") == "dateClick":
                     date_str = calendar_result["dateClick"]["date"]
-
                     try:
-                        start_dt = datetime.fromisoformat(
-                            date_str.replace("Z", "+00:00")
-                        )
-
-                        # Guard: reject past slots
+                        start_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                         if start_dt.replace(tzinfo=None) < datetime.utcnow():
-                            st.warning(
-                                t["slot_in_past"]
-                            )
+                            st.warning(t["slot_in_past"])
                             st.stop()
 
                         end_dt = start_dt + timedelta(minutes=30)
-
-                        # Normalize to FullCalendar's format so string comparisons
-                        # with booked_slots are reliable
                         start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                        end_iso   = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                        end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-                        # Overlap check against booked (red) slots
                         overlaps_booked = any(
                             start_iso < slot["end"] and end_iso > slot["start"]
                             for slot in booked_slots
                         )
 
                         if overlaps_booked:
-                            st.info(
-                                t["slot_already_booked"]
-                            )
+                            st.info(t["slot_already_booked"])
                         else:
-                            st.session_state["booking_start"] = start_iso
-                            st.session_state["booking_end"]   = end_iso
-
+                            if (
+                                st.session_state.get("booking_start") != start_iso
+                                or st.session_state.get("booking_end") != end_iso
+                            ):
+                                st.session_state["booking_start"] = start_iso
+                                st.session_state["booking_end"] = end_iso
+                                st.rerun()
                     except Exception as e:
                         st.error(f"Could not parse slot: {e}")
 
-                # -------------------------------------------------
-                # Handle clicks on booked events → info only
-                # -------------------------------------------------
-
+                # ----- Handle clicks on booked events -----
                 if calendar_result and calendar_result.get("callback") == "eventClick":
-                    st.info(
-                        t["slot_already_booked"]
-                    )
+                    st.info(t["slot_already_booked"])
 
-                # -------------------------------------------------
-                # Show current selection
-                # -------------------------------------------------
+            # =========================================
+            # Handlers — only fire when their button was clicked
+            # (buttons only render when one app is selected)
+            # =========================================
 
-                if (
-                    st.session_state.get("booking_start")
-                    and st.session_state.get("booking_end")
-                ):
-                    st.success(
-                        t["selected_slot"] + ": "
-                        f"{st.session_state['booking_start']} → "
-                        f"{st.session_state['booking_end']}"
-                    )
+            # ----- Interview -----
+            if interview_clicked:
+                booking_start = st.session_state.get("booking_start")
+                booking_end = st.session_state.get("booking_end")
+
+                if not booking_start or not booking_end:
+                    st.error(t["select_slot_first"])
                 else:
-                    st.info(t["select_slot_first"])
-                    # Please select a time slot on the calendar
+                    interview_payload = {
+                        "application_id": selected_application_id,
+                        "email": edited_email,
+                        "full_name": selected_application["full_name"],
+                        "booking_start": booking_start,
+                        "booking_end": booking_end,
+                        "support_email": support_email,
+                        "timezone": st.session_state.get("user_tz_name", "UTC"),
+                        "language": lang
+                    }
 
-                # DEBUG — remove this line once you confirm the dict shape
-                # st.write("DEBUG calendar_result:", calendar_result)
-
-                # -----------------------------------------
-                # Interview — book the slot & prepare payload
-                # -----------------------------------------
-
-                if interview_clicked:
-
-                    booking_start = st.session_state.get("booking_start")
-                    booking_end   = st.session_state.get("booking_end")
-
-                    if not booking_start or not booking_end:
-                        st.error(
-                            t["select_slot_first"]
+                    try:
+                        resp = requests.post(
+                            f"{API_URL}/api/interviews",
+                            json=interview_payload,
+                            timeout=15,
                         )
-                    else:
-                        # 1. Send the payload to YOUR backend
-                        interview_payload = {
-                            "application_id": selected_application_id,
-                            "email":          edited_email,
-                            "full_name":      selected_application["full_name"],
-                            "booking_start":  booking_start,
-                            "booking_end":    booking_end,
-                            "support_email":  support_email,
-                            "timezone":       st.session_state.get("user_tz_name", "UTC"),
-                            "language":       lang                            
-                        }
+                    except requests.RequestException as e:
+                        st.error(f"{t['request_failed']}: {e}")
+                        st.stop()
 
+                    if resp.status_code not in (200, 201):
                         try:
-                            resp = requests.post(
-                                f"{API_URL}/api/interviews",
-                                json=interview_payload,
-                                timeout=15,
-                            )
-                        except requests.RequestException as e:
-                            st.error(f"{t['request_failed']}: {e}")
-                            st.stop()
+                            detail = resp.json().get("detail", resp.text)
+                        except Exception:
+                            detail = resp.text[:300]
 
-                        if resp.status_code not in (200, 201):
-                            try:
-                                detail = resp.json().get("detail", resp.text)
-                            except Exception:
-                                detail = resp.text[:300]
+                        detail_lower = str(detail).lower()
+                        if resp.status_code == 409:
+                            st.error(t["slot_unavailable"])
+                        elif resp.status_code == 400 and "past" in detail_lower:
+                            st.error(t["slot_in_past"])
+                        else:
+                            st.error(detail)
 
-                            detail_lower = str(detail).lower()
+                        st.stop()
 
-                            if resp.status_code == 409:
-                                # Slot is either outside working hours
-                                # or already booked in Cal.com
-                                st.error(t["slot_unavailable"])
-                            elif (
-                                resp.status_code == 400
-                                and "past" in detail_lower
-                            ):
-                                st.error(t["slot_in_past"])
-                            else:
-                                # Unknown error — show raw detail
-                                st.error(detail)
+                    result = resp.json()
+                    st.session_state["interview_booking_uid"] = result.get("booking_uid", "")
+                    st.session_state.pop("booking_start", None)
+                    st.session_state.pop("booking_end", None)
+                    st.session_state["interview_ready_message"] = True
+                    st.session_state["calendar_version"] += 1  # <--- ВАЖНО
+                    st.rerun()
 
-                            st.stop()
+            if st.session_state.pop("interview_ready_message", False):
+                st.success(t["interview_ready"])
 
-                        result = resp.json()
-
-                        st.session_state["interview_booking_uid"] = (
-                            result.get("booking_uid", "")
-                        )
-
-                        # 3. Clear selection & remount calendar
-                        st.session_state.pop("booking_start", None)
-                        st.session_state.pop("booking_end", None)
-                        # st.session_state["calendar_version"] += 1
-                        st.session_state["interview_ready_message"] = True
-                        st.rerun()
-
-                if st.session_state.pop("interview_ready_message", False):
-                    st.success(
-                        t["interview_ready"]
+            # ----- Reject -----
+            if reject_clicked:
+                response = requests.patch(
+                    f"{API_URL}/api/applications/{selected_application_id}/status",
+                    json={
+                        "status": "Canceled",
+                        "email": edited_email
+                    },
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    st.session_state["application_rejected_message"] = True
+                    st.rerun()
+                else:
+                    st.error(
+                        f'{t["reject_error"]} '
+                        f'Error code: {response.status_code}.'
                     )
 
-                # -----------------------------------------
-                # Reject
-                # -----------------------------------------
-
-                if reject_clicked:
-
-                    response = requests.patch(
-
-                        f"{API_URL}/api/applications/"
-                        f"{selected_application_id}/status",
-
-                        json={
-                            "status": "Canceled",
-                            "email": edited_email
-                        },
-
-                        timeout=10
+            # ----- Hire -----
+            if hire_clicked:
+                response = requests.patch(
+                    f"{API_URL}/api/applications/{selected_application_id}/status",
+                    json={
+                        "status": "Hired",
+                        "email": edited_email,
+                        "support_email": support_email
+                    },
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    st.session_state["application_hired_message"] = True
+                    st.rerun()
+                else:
+                    st.error(
+                        f'{t["hire_error"]} '
+                        f'Error code: {response.status_code}.'
                     )
-
-
-                    if response.status_code == 200:
-
-                        st.session_state["application_rejected_message"] = True
-                        st.rerun()
-
-                    else:
-
-                        st.error(
-                            f'{t["reject_error"]} '
-                            f'Error code: {response.status_code}.'
-                        )
-
-
-                # -----------------------------------------
-                # Hire
-                # -----------------------------------------
-
-                if hire_clicked:
-
-                    response = requests.patch(
-                        f"{API_URL}/api/applications/"
-                        f"{selected_application_id}/status",
-                        json={
-                            "status": "Hired",
-                            "email": edited_email,
-                            "support_email": support_email
-                        },
-                        timeout=10
-                    )
-
-                    if response.status_code == 200:
-                        st.session_state["application_hired_message"] = True
-                        st.rerun()
-
-                    else:
-                        st.error(
-                            f'{t["hire_error"]} '
-                            f'Error code: {response.status_code}.'
-                        )
 
         # Display Hire notification after rerun
         if st.session_state.pop("application_hired_message", False):
@@ -1623,6 +1539,30 @@ else:
         st.error(
             f'{t["request_failed"]}: {e}'
         )
+    # =========================================
+    # Show current selection (always visible)
+    # =========================================
+    _bs = st.session_state.get("booking_start")
+    _be = st.session_state.get("booking_end")
+
+    if _bs and _be:
+        _msg_col, _clear_col = st.columns([6, 1])
+        with _msg_col:
+            st.success(f"{t['selected_slot']}: {_bs} → {_be}")
+        with _clear_col:
+            def _clear_slot():
+                st.session_state.pop("booking_start", None)
+                st.session_state.pop("booking_end", None)
+                st.session_state["calendar_version"] += 1  # Убиваем кэш
+
+            st.button(
+                "✕", 
+                key="clear_slot_btn", 
+                on_click=_clear_slot, 
+                help=t.get("clear_slot", "Clear selection")
+            )
+    else:
+        st.info(t["select_slot_first"])
 
     # -----------------------------------------------------
     # Support Email
