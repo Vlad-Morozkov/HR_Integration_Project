@@ -255,8 +255,14 @@ TEXTS = {
 
         # Calendar
 
-        "calendar":        "Calendar",
-        "calendar_booked": "Booked",
+        "calendar":         "Calendar",
+        "calendar_booked":  "Booked",
+        "today":            "today",
+        "week":             "week",
+        "day":              "day",
+        "all_day":          "all-day",
+        "locale_code":      "en",
+        "booked": "Booked",
 
         # Application's notiffications
 
@@ -366,9 +372,14 @@ TEXTS = {
 
         # Calendar
 
-        "calendar":        "Календарь",
-        "calendar_booked": "Занято",
-
+        "calendar":         "Календарь",
+        "calendar_booked":  "Занято",
+        "today":            "Сегодня",
+        "week":             "Неделя",
+        "day":              "День",
+        "all_day":          "Весь день",
+        "locale_code":      "ru",
+        "booked": "Забронировано",
 
         # Сообщения 
         
@@ -1158,6 +1169,10 @@ else:
             if "calendar_version" not in st.session_state:
                 st.session_state["calendar_version"] = 0                
 
+
+            # Определяем локаль
+            calendar_locale = "ru" if lang == "ru" else "en"
+
             # =========================================
             # Find selected rows
             # =========================================
@@ -1225,12 +1240,9 @@ else:
                 # -----------------------------------------
                 # Action buttons
                 # -----------------------------------------
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    review_clicked = st.button(t["review"])
-
-                with col2:
                     interview_clicked = st.button(
                         t["Interview"],
                         disabled=(
@@ -1241,7 +1253,7 @@ else:
                         )
                     )
 
-                with col3:
+                with col2:
                     hire_clicked = st.button(
                         t["hire"],
                         disabled=(
@@ -1265,7 +1277,7 @@ else:
                     if same_email_hired:
                         st.warning(t["candidate_already_hired"])
 
-                with col4:
+                with col3:
                     reject_clicked = st.button(
                         t["reject"],
                         disabled=(
@@ -1305,6 +1317,15 @@ else:
             # =========================================
             # Calendar — rendered only when expanded
             # =========================================
+
+            # Берем настройки локализации из словаря t
+            cal_locale    = t.get("locale_code", "en")
+            cal_today     = t.get("today", "today")
+            cal_week      = t.get("week", "week")
+            cal_day       = t.get("day", "day")
+            cal_all_day   = t.get("all_day", "all-day")
+
+
             if st.session_state["calendar_expanded"]:
                 calendar_options = {
                     "initialView": "timeGridWeek",
@@ -1314,7 +1335,8 @@ else:
                     "slotMaxTime": "18:00:00",
                     "slotDuration": "00:30:00",
                     "snapDuration": "00:30:00",
-                    "firstDay": 1 if lang == "ru" else 0,
+                    # Первый день недели: 1 для РФ (Пн), 0 для США (Вс)
+                    "firstDay": 1 if cal_locale == "ru" else 0, 
                     "validRange": {
                         "start": date.today().isoformat()
                     },
@@ -1324,7 +1346,39 @@ else:
                         "right": "timeGridWeek,timeGridDay",
                     },
                     "height": 500,
-                    "firstDay": 1 if lang == "ru" else 0,
+
+                    # --- ЛОКАЛИЗАЦИЯ ---
+                    "locale": cal_locale,
+                    "buttonText": {
+                        "today": cal_today,
+                        "week": cal_week,
+                        "day": cal_day
+                    },
+                    "allDayText": cal_all_day,
+
+                    # --- ФОРМАТЫ ОТОБРАЖЕНИЯ ---
+                    "locale": calendar_locale,
+                    "titleFormat": {
+                        "year": "numeric",
+                        "month": "long"
+                    },
+                    "dayHeaderFormat": {
+                        "weekday": "short",
+                        "month": "numeric",
+                        "day": "numeric",
+                        "omitCommas": True
+                    },
+                    "slotLabelFormat": {
+                        "hour": "2-digit",
+                        "minute": "2-digit",
+                        "hour12": False
+                    },
+                    "eventTimeFormat": {
+                        "hour": "2-digit",
+                        "minute": "2-digit",
+                        "hour12": False
+                    },
+                    # ----------------------
                 }
 
                 # Fetch booked slots from backend
@@ -1343,6 +1397,9 @@ else:
                 calendar_events = []
                 color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
                 app_color_map = {}
+                
+                # Берем перевод из словаря с фоллбэком на "Booked"
+                booked_title = t.get("booked", "Booked")                
 
                 for slot in booked_slots:
                     app_id = slot.get("application_id", "")
@@ -1362,7 +1419,7 @@ else:
                         if next_chunk > e_dt:
                             next_chunk = e_dt
                         calendar_events.append({
-                            "title": "Booked" if is_first else "",
+                            "title": booked_title if is_first else "",  # <-- ИСПОЛЬЗУЕМ ПЕРЕМЕННУЮ
                             "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                             "end": next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                             "color": slot_color,
@@ -1546,9 +1603,23 @@ else:
     _be = st.session_state.get("booking_end")
 
     if _bs and _be:
+        # Форматируем для отображения
+        try:
+            bs_dt = datetime.fromisoformat(_bs.replace("Z", "+00:00"))
+            be_dt = datetime.fromisoformat(_be.replace("Z", "+00:00"))
+            
+            # Если даты одинаковые — выводим дату один раз в конце
+            if bs_dt.date() == be_dt.date():
+                display_str = f"{bs_dt.strftime('%H:%M')} → {be_dt.strftime('%H:%M %d.%m.%Y')}"
+            else:
+                # Если дни разные — выводим полную дату для обоих
+                display_str = f"{bs_dt.strftime('%H:%M %d.%m.%Y')} → {be_dt.strftime('%H:%M %d.%m.%Y')}"
+        except Exception:
+            display_str = f"{_bs} → {_be}"
+
         _msg_col, _clear_col = st.columns([6, 1])
         with _msg_col:
-            st.success(f"{t['selected_slot']}: {_bs} → {_be}")
+            st.success(f"{t['selected_slot']}: {display_str}")
         with _clear_col:
             def _clear_slot():
                 st.session_state.pop("booking_start", None)
