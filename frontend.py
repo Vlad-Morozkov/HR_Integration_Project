@@ -262,7 +262,9 @@ TEXTS = {
         "day":              "day",
         "all_day":          "all-day",
         "locale_code":      "en",
-        "booked": "Booked",
+        "booked":           "Booked",
+        "cancel_booking":   "Cancel Booking",
+        "booking_cancelled": "Interview booking cancelled successfully.",
 
         # Application's notiffications
 
@@ -379,7 +381,9 @@ TEXTS = {
         "day":              "День",
         "all_day":          "Весь день",
         "locale_code":      "ru",
-        "booked": "Забронировано",
+        "booked":           "Забронировано",
+        "cancel_booking":   "Отменить собеседование",
+        "booking_cancelled": "Собеседование успешно отменено.",
 
         # Сообщения 
         
@@ -1307,7 +1311,24 @@ else:
                 if st.session_state.get("calendar_expanded", False)
                 else f"▼ {t.get('expand_calendar', 'Expand calendar')}"
             )
-            st.button(toggle_label, key="calendar_toggle_button", on_click=_toggle_cal)
+
+            col_calendar, col_cancel = st.columns(2)
+
+            with col_calendar:
+                st.button(
+                    toggle_label,
+                    key="calendar_toggle_button",
+                    on_click=_toggle_cal
+                )
+
+            with col_cancel:
+                cancel_booking_clicked = st.button(
+                    t.get("cancel_booking", "Cancel Booking"),
+                    key="cancel_booking_button",
+                    disabled=not bool(
+                        st.session_state.get("selected_booking_uid")
+                    )
+                )
 
             # ГАРД (оставляем)
             if not st.session_state.get("calendar_expanded", False):
@@ -1393,13 +1414,16 @@ else:
                     st.warning(f"Could not load booked slots: {e}")
                     booked_slots = []
 
-                # Split bookings into 30-min chunks for nicer display
+                # Use no chunks split
+
+                # 1 ver - use no 30 min chunks-------------
+                # Build events
                 calendar_events = []
                 color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
                 app_color_map = {}
-                
-                # Берем перевод из словаря с фоллбэком на "Booked"
-                booked_title = t.get("booked", "Booked")                
+
+                booked_title = t.get("booked", "Booked")
+                selected_booking_uid = st.session_state.get("selected_booking_uid")
 
                 for slot in booked_slots:
                     app_id = slot.get("application_id", "")
@@ -1407,31 +1431,130 @@ else:
                         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
                     slot_color = app_color_map[app_id]
 
-                    s_str = slot["start"].replace("Z", "+00:00")
-                    e_str = slot["end"].replace("Z", "+00:00")
-                    s_dt = datetime.fromisoformat(s_str)
-                    e_dt = datetime.fromisoformat(e_str)
+                    is_selected = (selected_booking_uid == slot["booking_uid"])
 
-                    current = s_dt
-                    is_first = True
-                    while current < e_dt:
-                        next_chunk = current + timedelta(minutes=30)
-                        if next_chunk > e_dt:
-                            next_chunk = e_dt
-                        calendar_events.append({
-                            "title": booked_title if is_first else "",  # <-- ИСПОЛЬЗУЕМ ПЕРЕМЕННУЮ
-                            "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            "end": next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            "color": slot_color,
-                        })
-                        current = next_chunk
-                        is_first = False
+                    # Pass the slot natively as ONE block (no more 30-min chunks)
+                    event = {
+                        "id": slot["booking_uid"],
+                        "title": booked_title,
+                        "start": slot["start"],
+                        "end": slot["end"],
+                        "backgroundColor": slot_color,
+                    }
 
+                    if is_selected:
+                        # Force the border and background to stay the selected color
+                        event["borderColor"] = "#0B1F5E"
+                        event["borderWidth"] = "3px"
+                        event["textColor"] = "#ffffff"
+                        
+                    calendar_events.append(event)
+
+                # Call the calendar function
                 calendar_result = calendar(
                     events=calendar_events,
                     options=calendar_options,
-                    key=f"booking_calendar_v{st.session_state['calendar_version']}",  # <--- ВАЖНО
+                    key=f"booking_calendar_v{st.session_state['calendar_version']}",
                 )
+                # ver 1 end ----------------------
+
+                # Split bookings into 30-min chunks for nicer display
+
+                # # 3 ver -----------------------
+                # # Build events
+                # calendar_events = []
+                # color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
+                # app_color_map = {}
+
+                # booked_title = t.get("booked", "Booked")
+                # selected_booking_uid = st.session_state.get("selected_booking_uid")
+
+                # for slot in booked_slots:
+                #     app_id = slot.get("application_id", "")
+                #     if app_id not in app_color_map:
+                #         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
+                #     slot_color = app_color_map[app_id]
+
+                #     is_selected = (selected_booking_uid == slot["booking_uid"])
+
+                #     # Pass the slot natively. FullCalendar handles multi-hour blocks perfectly.
+                #     event = {
+                #         "id": slot["booking_uid"],
+                #         "title": booked_title,
+                #         "start": slot["start"],
+                #         "end": slot["end"],
+                #         "backgroundColor": slot_color,  # This replaces "color" for background
+                #     }
+
+                #     if is_selected:
+                #         # Apply the dark blue frame INLINE - guaranteed to work on any version
+                #         event["borderColor"] = "#0B1F5E"
+                #         event["borderWidth"] = "3px"
+                #         event["textColor"] = "#ffffff" # Keeps text readable on the background
+
+                #     calendar_events.append(event)
+
+                #     # 3 ver end -----------------
+
+                # -----------------------------    
+                # 2 ver
+                # calendar_events = []
+                # color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
+                # app_color_map = {}
+                
+                # # Берем перевод из словаря с фоллбэком на "Booked"
+                # booked_title = t.get("booked", "Booked")                
+
+                # for slot in booked_slots:
+                #     app_id = slot.get("application_id", "")
+                #     if app_id not in app_color_map:
+                #         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
+                #     slot_color = app_color_map[app_id]
+
+                #     s_str = slot["start"].replace("Z", "+00:00")
+                #     e_str = slot["end"].replace("Z", "+00:00")
+                #     s_dt = datetime.fromisoformat(s_str)
+                #     e_dt = datetime.fromisoformat(e_str)
+
+                #     current = s_dt
+                #     is_first = True
+                #     while current < e_dt:
+                #         next_chunk = current + timedelta(minutes=30)
+                #         if next_chunk > e_dt:
+                #             next_chunk = e_dt
+                #         calendar_events.append({
+                #             "id": slot["booking_uid"],    
+                #             "title": booked_title if is_first else "",  # <-- ИСПОЛЬЗУЕМ ПЕРЕМЕННУЮ
+                #             "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                #             "end": next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                #             "color": slot_color,
+                #         })
+                #         current = next_chunk
+                #         is_first = False
+
+                # # 1. Define your CSS in a variable
+                # selected_slot_css = """
+                #     .fc-event.selected-booking-side {
+                #         border-left: 3px solid #0B1F5E !important;
+                #         border-right: 3px solid #0B1F5E !important;
+                #     }
+                #     .fc-event.selected-booking-top {
+                #         border-top: 3px solid #0B1F5E !important;
+                #     }
+                #     .fc-event.selected-booking-bottom {
+                #         border-bottom: 3px solid #0B1F5E !important;
+                #     }
+                # """
+
+                # # 2. Call the calendar function, passing custom_css correctly
+                
+                # calendar_result = calendar(
+                #     events=calendar_events,
+                #     options=calendar_options,
+                #     # custom_css=selected_slot_css, # use with # 1.Define your CSS in a variable above
+                #     key=f"booking_calendar_v{st.session_state['calendar_version']}",  # <--- ВАЖНО
+                # )
+                # # 2 ver end -------------------------
 
                 # ----- Handle drag-select -----
                 if calendar_result and calendar_result.get("callback") == "select":
@@ -1440,6 +1563,11 @@ else:
                     if sel_start.replace(tzinfo=None) < datetime.utcnow():
                         st.warning(t["slot_in_past"])
                     else:
+
+                        st.session_state.pop("selected_booking_uid", None)
+                        st.session_state.pop("selected_booking_start", None)
+                        st.session_state.pop("selected_booking_end", None)
+
                         if (
                             st.session_state.get("booking_start") != sel["start"]
                             or st.session_state.get("booking_end") != sel["end"]
@@ -1469,6 +1597,11 @@ else:
                         if overlaps_booked:
                             st.info(t["slot_already_booked"])
                         else:
+
+                            st.session_state.pop("selected_booking_uid", None)
+                            st.session_state.pop("selected_booking_start", None)
+                            st.session_state.pop("selected_booking_end", None)
+
                             if (
                                 st.session_state.get("booking_start") != start_iso
                                 or st.session_state.get("booking_end") != end_iso
@@ -1481,7 +1614,86 @@ else:
 
                 # ----- Handle clicks on booked events -----
                 if calendar_result and calendar_result.get("callback") == "eventClick":
-                    st.info(t["slot_already_booked"])
+                    clicked_event = calendar_result["eventClick"]["event"]
+                    booking_uid = clicked_event.get("id")
+
+                    # Guard: only act if this is a *new* booking selection.
+                    # Prevents the cached eventClick payload from looping st.rerun().
+                    if booking_uid and st.session_state.get("selected_booking_uid") != booking_uid:
+                        st.session_state["selected_booking_uid"] = booking_uid
+
+                        # Clear any previously selected free slot
+                        st.session_state.pop("booking_start", None)
+                        st.session_state.pop("booking_end", None)
+
+                        st.session_state["selected_booking_start"] = clicked_event.get("start")
+                        st.session_state["selected_booking_end"] = clicked_event.get("end")
+
+                        st.rerun()
+
+            # =========================================
+            # Cancel interview booking
+            # =========================================
+
+            if cancel_booking_clicked:
+
+                booking_uid = st.session_state.get("selected_booking_uid")
+
+                if not booking_uid:
+                    st.warning("Please select a booked interview first.")
+
+                else:
+
+                    try:
+                        with st.spinner("Canceling booking. Please wait..."):
+
+                            cancel_response = requests.post(
+                                f"{API_URL}/api/interviews/{booking_uid}/cancel",
+                                timeout=15
+                            )
+
+                        if cancel_response.status_code == 200:
+
+                            # Clear selected booking
+                            st.session_state.pop("selected_booking_uid", None)
+                            st.session_state.pop("selected_booking_start", None)
+                            st.session_state.pop("selected_booking_end", None)
+
+                            # Clear free-slot selection too
+                            st.session_state.pop("booking_start", None)
+                            st.session_state.pop("booking_end", None)
+
+                            # Refresh calendar
+                            st.session_state["calendar_version"] += 1
+
+                            st.session_state["booking_cancelled_message"] = True
+
+                            st.rerun()
+
+                        else:
+                            try:
+                                detail = cancel_response.json().get(
+                                    "detail",
+                                    cancel_response.text
+                                )
+                            except Exception:
+                                detail = cancel_response.text[:300]
+
+                            st.error(f"Cancellation failed: {detail}")
+
+                            # Booking no longer active — clear stale selection
+                            if cancel_response.status_code in (404, 409):
+
+                                st.session_state.pop("selected_booking_uid", None)
+                                st.session_state.pop("selected_booking_start", None)
+                                st.session_state.pop("selected_booking_end", None)
+
+                                st.session_state["calendar_version"] += 1
+                                st.rerun()
+
+                    except requests.RequestException as e:
+                        st.error(f"Cancellation request failed: {e}")
+
 
             # =========================================
             # Handlers — only fire when their button was clicked
@@ -1543,6 +1755,11 @@ else:
 
             if st.session_state.pop("interview_ready_message", False):
                 st.success(t["interview_ready"])
+            
+            if st.session_state.pop("booking_cancelled_message", False):
+                st.success(
+                    t.get("booking_cancelled", "Interview booking cancelled successfully.")
+                )
 
             # ----- Reject -----
             if reject_clicked:

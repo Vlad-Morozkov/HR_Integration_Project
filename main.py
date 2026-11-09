@@ -1120,6 +1120,60 @@ def get_booked_slots(
         for i in interviews
     ]
 
+
+@app.post("/api/interviews/{booking_uid}/cancel")
+def cancel_interview(
+    booking_uid: str,
+    db: Session = Depends(get_db)
+):
+    # 1. Find the booking in our database
+    interview = db.query(Interview).filter(
+        Interview.calcom_uid == booking_uid
+    ).first()
+
+    if not interview:
+        raise HTTPException(
+            status_code=404,
+            detail="Booking not found."
+        )
+
+    # 2. Check that the booking is still active
+    if interview.status != "confirmed":
+        raise HTTPException(
+            status_code=409,
+            detail="Booking is not active."
+        )
+
+    # 3. Cancel the booking in Cal.com
+    success = cancel_calcom_booking(booking_uid)
+
+    if not success:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not cancel booking in Cal.com."
+        )
+
+    # 4. Update our local database
+    try:
+        interview.status = "cancelled"
+        interview.cancelled_at = datetime.utcnow()
+        db.commit()
+
+    except SQLAlchemyError:
+        db.rollback()
+        logging.exception("Error updating cancelled interview.")
+        raise HTTPException(
+            status_code=500,
+            detail="Booking was cancelled in Cal.com, but database update failed."
+        )
+
+    return {
+        "message": "Booking cancelled successfully.",
+        "booking_uid": booking_uid,
+        "status": "cancelled"
+    }
+
+
 # для отладки полный список
 
 @app.get(
