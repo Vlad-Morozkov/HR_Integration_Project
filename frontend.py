@@ -1643,16 +1643,15 @@ else:
                     if is_selected:
                         # Assign a CSS class (FullCalendar will use this to apply the thick border)
                         event["classNames"] = ["selected-booking-frame"]
-                        event["backgroundColor"] = "#093445"
-                        event["textColor"] = "#ffffff"                        
+                        # Убрали backgroundColor и textColor, чтобы фон остался прежним
                         
                     calendar_events.append(event)
 
                 # Define the thick CSS frame
                 bold_frame_css = """
                 .fc-event.selected-booking-frame {
-                    border: 6px solid #FF0000 !important; /* 6px thick RED frame */
-                    box-shadow: 0 0 8px rgba(255, 0, 0, 0.8) !important; /* Glowing effect */
+                    border: 3px solid #093445 !important; /* Темно-синяя рамка 3px */
+                    box-shadow: 0 0 8px rgba(9, 52, 69, 0.8) !important; /* Свечение в тон рамки */
                     z-index: 10 !important;
                 }
                 """
