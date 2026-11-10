@@ -1643,7 +1643,7 @@ else:
                     if is_selected:
                         # Force the border and background to stay the selected color
                         event["borderColor"] = "#093445"
-                        event["borderWidth"] = "7px"
+                        event["borderWidth"] = "12px"
                         event["textColor"] = "#ffffff"
                         
                     calendar_events.append(event)
