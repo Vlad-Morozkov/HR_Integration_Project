@@ -96,11 +96,15 @@ def parse_calcom_datetime(value: str) -> datetime:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
 
+
 def cancel_calcom_booking(booking_uid: str) -> bool:
-    """
-    Отменяет бронь в Cal.com.
-    Возвращает True при успехе (200/204), иначе False.
-    """
+
+    # now If Cal.com returns "404 Not Found" 
+    # (meaning it's already cancelled), 
+    # it returns a special flag.
+    # And i can delete already cancelled at calcom 
+    # slot, that shows at my prj like active
+
     if not CALCOM_API_KEY:
         logging.warning("CALCOM_API_KEY missing, cannot cancel booking.")
         return False
@@ -113,23 +117,78 @@ def cancel_calcom_booking(booking_uid: str) -> bool:
     }
     body = {
         "cancellationReason": "Demo reset",
-        # cancelSubsequentBookings только для повторяющихся броней,
-        # для обычной интервью-брони оставляем False или не передаём.
     }
 
     try:
         r = requests.post(url, json=body, headers=headers, timeout=10)
+        
+        # 1. Success (200 or 204)
         if r.status_code in (200, 204):
             logging.info(f"Cal.com booking {booking_uid} cancelled.")
             return True
+            
+        # 2. Robust check for "already cancelled" or "not found"
+        response_text = r.text.lower()
+        
+        # If Cal.com says 404/410, it's gone.
+        # If it says 400, but the text contains BOTH "cancel" and "already", 
+        # it means "cancelled already", "already cancelled", "canceled already", etc.
+        is_already_gone = (
+            r.status_code in (404, 410) 
+            or ("cancel" in response_text and "already" in response_text)
+            or ("cancel" in response_text and "not found" in response_text)
+        )
+        
+        if is_already_gone:
+            logging.info(f"Cal.com booking {booking_uid} is already cancelled or missing.")
+            return True
+
+        # 3. Real error (e.g., Cal.com is down, or bad API key)
         logging.warning(
             f"Cal.com cancel failed for {booking_uid}: "
             f"{r.status_code} {r.text[:200]}"
         )
         return False
+        
     except requests.RequestException as e:
         logging.exception(f"Cal.com cancel request error: {e}")
         return False
+
+
+# def cancel_calcom_booking(booking_uid: str) -> bool:
+#     """
+#     Отменяет бронь в Cal.com.
+#     Возвращает True при успехе (200/204), иначе False.
+#     """
+#     if not CALCOM_API_KEY:
+#         logging.warning("CALCOM_API_KEY missing, cannot cancel booking.")
+#         return False
+
+#     url = f"https://api.cal.com/v2/bookings/{booking_uid}/cancel"
+#     headers = {
+#         "Authorization":   f"Bearer {CALCOM_API_KEY}",
+#         "Content-Type":    "application/json",
+#         "cal-api-version": "2024-08-13",
+#     }
+#     body = {
+#         "cancellationReason": "Demo reset",
+#         # cancelSubsequentBookings только для повторяющихся броней,
+#         # для обычной интервью-брони оставляем False или не передаём.
+#     }
+
+#     try:
+#         r = requests.post(url, json=body, headers=headers, timeout=10)
+#         if r.status_code in (200, 204):
+#             logging.info(f"Cal.com booking {booking_uid} cancelled.")
+#             return True
+#         logging.warning(
+#             f"Cal.com cancel failed for {booking_uid}: "
+#             f"{r.status_code} {r.text[:200]}"
+#         )
+#         return False
+#     except requests.RequestException as e:
+#         logging.exception(f"Cal.com cancel request error: {e}")
+#         return False
 
 def prune_old_interviews(db: Session, keep_last: int = 20):
     """
@@ -184,6 +243,8 @@ class BookedSlotResponse(BaseModel):
     end:            str
     booking_uid:    str
     application_id: str
+    cancel_url:     str
+    reschedule_url: str
 
 
 # ----------------------------------
@@ -1116,6 +1177,9 @@ def get_booked_slots(
             "end":            i.booking_end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "booking_uid":    i.calcom_uid,
             "application_id": i.application_id,
+            # --- ADDED LINKS BELOW ---
+            "cancel_url":     f"https://app.cal.com/booking/{i.calcom_uid}?cancel=true",
+            "reschedule_url": f"https://app.cal.com/booking/{i.calcom_uid}?reschedule=true"
         }
         for i in interviews
     ]

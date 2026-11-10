@@ -174,6 +174,20 @@ TEXTS = {
         "experience":            "Experience",
         "birth_date":            "Birth Date",
         "submit_application":    "Submit Application",
+
+        #----------
+        # Booking review
+        #----------
+
+        "my_bookings": "My Bookings",
+        "select_candidate_booking": "Select Candidate (with active bookings)",
+        "no_active_bookings": "No candidates with active upcoming bookings found.",
+        "date": "Date",
+        "time": "Time",
+        "select_booking": "Select",
+        "reschedule_booking": "Reschedule",
+        "cancel_booking": "Cancel Booking",
+        "booking_url_missing": "URL not provided by backend",
      
         #----------
         # Notiffications
@@ -264,7 +278,8 @@ TEXTS = {
         "locale_code":      "en",
         "booked":           "Booked",
         "cancel_booking":   "Cancel Booking",
-        "booking_cancelled": "Interview booking cancelled successfully.",
+        "booking_cancelled":    "Interview booking cancelled successfully.",
+        "canceling_booking":    "Canceling booking. Please wait...",
 
         # Application's notiffications
 
@@ -302,6 +317,11 @@ TEXTS = {
         "mode":                  "Выберите режим",
         "candidate":             "Кандидат",
         "hr":                    "HR",
+
+        #----------
+        # Candidate Mode
+        #----------
+
         "fill_test_data":        "Заполнить Demo данными",
         "clear_fields":          "Очистить поля",
         "position":              "Должность",
@@ -312,6 +332,25 @@ TEXTS = {
         "birth_date":            "Дата рождения",
         "submit_application":    "Отправить заявку",
 
+        #----------
+        # Booking review
+        #----------
+
+        "my_bookings":              "Мои собеседования",
+        "select_candidate_booking": "Выберите кандидата (с активными записями)",
+        "no_active_bookings":       "Не найдено кандидатов с активными предстоящими записями.",
+        "date":                     "Дата",
+        "time":                     "Время",
+        "select_booking":           "Выбрать",
+        "reschedule_booking":       "Изменить встречу",
+        "cancel_booking":           "Отменить",
+        "booking_url_missing":      "backend не предоставил URL",
+
+        #----------
+        # Notiffications
+        #----------
+
+
         "empty_db":              "База данных пуста. Хотите заполнить demo данными?",
         "success":               "Данные успешно отправлены.",
         "birth_date_error":      "Дата рождения не может быть сегодня или в будущем.",
@@ -320,6 +359,10 @@ TEXTS = {
         "connection_error":      "Не удалось подключиться к системе найма.",
         "duplicate_application": "Вы уже подавали заявку на эту должность.",
         "invalid_email":         "Пожалуйста, введите корректный адрес электронной почты.",
+
+        #----------
+        # HR Mode
+        #----------
 
         "refresh":               "Обновить",
         "filters":               "Фильтры",
@@ -332,11 +375,22 @@ TEXTS = {
         "new_position":          "Новая должность",
         "add_position":          "Добавить должность",
 
+        #----------
+        # Notiffications
+        #----------
+
         "position_empty":        "Название должности не может быть пустым.",
         "position_added":        "Должность успешно добавлена.",
         "position_add_error":    "Не удалось добавить должность.",
 
+        # Buttons
+
         "reset_demo":            "Сбросить и загрузить Demo-данные",
+
+
+        #----------
+        # Notiffications
+        #----------
 
         "demo_loaded":           "Demo-данные успешно загружены.",
         "DemoData&BookingGeneration": 
@@ -349,7 +403,11 @@ TEXTS = {
         "select_only_one":       "Пожалуйста, выберите только одну заявку.",
         "candidate_already_hired":"Этот кандидат уже принят на работу",
 
+        # Email buttons
+
         "email_help":            "Email кандидата",
+
+        # Email notifs
 
         "email_duplicate_active":
             "Этот email {email} уже используется в активной заявке на эту должность.",
@@ -359,10 +417,6 @@ TEXTS = {
         "email_updated":         "Email успешно обновлён.",
         "email_update_error":    "Не удалось обновить email.",
         
-        #----------
-        # HR Mode
-        #----------
-
         # Кнопки
         
         "review":                "Рассмотреть",
@@ -383,7 +437,8 @@ TEXTS = {
         "locale_code":      "ru",
         "booked":           "Забронировано",
         "cancel_booking":   "Отменить собеседование",
-        "booking_cancelled": "Собеседование успешно отменено.",
+        "booking_cancelled":    "Собеседование успешно отменено.",
+        "canceling_booking":    "Отмена собеседования. Подождите подалуйста.",        
 
         # Сообщения 
         
@@ -842,6 +897,149 @@ if mode == t["candidate"]:
     except requests.RequestException:
 
         st.error(t["connection_error"])
+
+    # =========================================================
+    # CANDIDATE BOOKINGS TABLE
+    # =========================================================
+    st.divider()
+    st.subheader(t.get("my_bookings", "My Bookings"))
+
+    try:
+        # Fetch all applications and booked slots
+        apps_resp = requests.get(f"{API_URL}/api/applications", timeout=5)
+        slots_resp = requests.get(f"{API_URL}/api/interviews/booked-slots", timeout=5)
+
+        if apps_resp.status_code == 200 and slots_resp.status_code == 200:
+            all_apps = apps_resp.json()
+            all_slots = slots_resp.json()
+
+            # Use the existing timezone offset from your app's session state
+            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+            now_utc = datetime.utcnow()
+
+            valid_candidates = {}
+            candidate_bookings = {}
+
+            # Filter and match applications with upcoming slots
+            for slot in all_slots:
+                app_id = slot.get("application_id")
+                
+                # Parse date safely as UTC
+                try:
+                    s_dt_utc = datetime.fromisoformat(slot["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                except Exception:
+                    continue
+
+                # Check if booking is in the future
+                if s_dt_utc >= now_utc:
+                    app = next((a for a in all_apps if a["id"] == app_id), None)
+                    
+                    # Check if application status is 'New'
+                    if app and app["status"] == "New":
+                        valid_candidates[app_id] = f"{app['full_name']} ({app['email']})"
+                        if app_id not in candidate_bookings:
+                            candidate_bookings[app_id] = []
+                        candidate_bookings[app_id].append(slot)
+
+            if not valid_candidates:
+                st.info(t.get("no_active_bookings", "No candidates with active upcoming bookings found."))
+            else:
+                # Dropdown ahead of table
+                selected_app_id = st.selectbox(
+                    t.get("select_candidate_booking", "Select Candidate"),
+                    options=list(valid_candidates.keys()),
+                    format_func=lambda x: valid_candidates[x],
+                    key="candidate_booking_selector"
+                )
+
+                if selected_app_id:
+                    bookings = candidate_bookings[selected_app_id]
+
+                    # Prepare table data
+                    table_data = []
+                    for b in bookings:
+                        try:
+                            s_dt_utc = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                            e_dt_utc = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+
+                            # Apply the local time offset
+                            s_dt_local = s_dt_utc + timedelta(hours=tz_offset)
+                            e_dt_local = e_dt_utc + timedelta(hours=tz_offset)
+                        except Exception:
+                            continue
+                            
+                        # Select column is first
+                        table_data.append({
+                            t.get("select_booking", "Select"): False,
+                            "_id": b["booking_uid"],
+                            t.get("date", "Date"): s_dt_local.strftime("%d-%m-%Y"),
+                            t.get("time", "Time"): f"{s_dt_local.strftime('%H:%M')} - {e_dt_local.strftime('%H:%M')}",
+                            # Check multiple possible backend keys for links
+                            "cancel_url": b.get("cancel_url", b.get("cancel_link", "#")),
+                            "reschedule_url": b.get("reschedule_url", b.get("reschedule_link", "#"))
+                        })
+
+                    # Table with Checkbox
+                    edited_df = st.data_editor(
+                        table_data,
+                        hide_index=True,
+                        use_container_width=True,
+                        disabled=[
+                            "_id", 
+                            t.get("date", "Date"), 
+                            t.get("time", "Time"), 
+                            "cancel_url", 
+                            "reschedule_url"
+                        ],
+                        column_config={
+                            "_id": None,
+                            "cancel_url": None, 
+                            "reschedule_url": None, 
+                            t.get("select_booking", "Select"): st.column_config.CheckboxColumn(
+                                t.get("select_booking", "Select"),
+                                width="small" 
+                            )
+                        },
+                        key=f"candidate_booking_table_{selected_app_id}"
+                    )
+
+                    # Safe selection logic for both List and DataFrame (Fixes crash & disabled buttons)
+                    select_col = t.get("select_booking", "Select")
+                    if hasattr(edited_df, "iloc"):
+                        selected_rows = edited_df[edited_df[select_col] == True].to_dict("records")
+                    else:
+                        selected_rows = [row for row in edited_df if row.get(select_col) is True]
+
+                    final_cancel_url = "#"
+                    final_reschedule_url = "#"
+
+                    if len(selected_rows) == 1:
+                        final_cancel_url = selected_rows[0].get("cancel_url", "#")
+                        final_reschedule_url = selected_rows[0].get("reschedule_url", "#")
+                    elif len(selected_rows) > 1:
+                        st.warning(t.get("select_only_one", "Please select only one booking at a time."))
+
+                    # Buttons under the table
+                    btn_col1, btn_col2 = st.columns(2)
+                    
+                    with btn_col1:
+                        st.link_button(
+                            t.get("reschedule_booking", "Reschedule"),
+                            url=final_reschedule_url,
+                            disabled=(len(selected_rows) != 1 or final_reschedule_url == "#"),
+                            use_container_width=True
+                        )
+                        
+                    with btn_col2:
+                        st.link_button(
+                            t.get("cancel_booking", "Cancel Booking"),
+                            url=final_cancel_url,
+                            disabled=(len(selected_rows) != 1 or final_cancel_url == "#"),
+                            use_container_width=True
+                        )
+                        
+    except requests.RequestException as e:
+        st.error(f"Could not load bookings: {e}")    
 
 # =========================================================
 # HR MODE
@@ -1586,8 +1784,22 @@ else:
                             st.stop()
 
                         end_dt = start_dt + timedelta(minutes=30)
-                        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                        end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                        
+                        # Convert local time to UTC using the existing offset
+                        tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                        
+                        if start_dt.tzinfo is None:
+                            start_utc = start_dt - timedelta(hours=tz_offset)
+                        else:
+                            start_utc = start_dt.replace(tzinfo=None)
+                            
+                        if end_dt.tzinfo is None:
+                            end_utc = end_dt - timedelta(hours=tz_offset)
+                        else:
+                            end_utc = end_dt.replace(tzinfo=None)
+
+                        start_iso = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                        end_iso = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
                         overlaps_booked = any(
                             start_iso < slot["end"] and end_iso > slot["start"]
@@ -1645,7 +1857,7 @@ else:
                 else:
 
                     try:
-                        with st.spinner("Canceling booking. Please wait..."):
+                        with st.spinner(t["canceling_booking"]):
 
                             cancel_response = requests.post(
                                 f"{API_URL}/api/interviews/{booking_uid}/cancel",
@@ -1822,15 +2034,19 @@ else:
     if _bs and _be:
         # Форматируем для отображения
         try:
-            bs_dt = datetime.fromisoformat(_bs.replace("Z", "+00:00"))
-            be_dt = datetime.fromisoformat(_be.replace("Z", "+00:00"))
+            # Read the UTC time and strip timezone info
+            bs_dt = datetime.fromisoformat(_bs.replace("Z", "+00:00")).replace(tzinfo=None)
+            be_dt = datetime.fromisoformat(_be.replace("Z", "+00:00")).replace(tzinfo=None)
             
-            # Если даты одинаковые — выводим дату один раз в конце
-            if bs_dt.date() == be_dt.date():
-                display_str = f"{bs_dt.strftime('%H:%M')} → {be_dt.strftime('%H:%M %d.%m.%Y')}"
+            # Convert UTC back to user's local time for display using the existing offset
+            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+            bs_dt_local = bs_dt + timedelta(hours=tz_offset)
+            be_dt_local = be_dt + timedelta(hours=tz_offset)
+            
+            if bs_dt_local.date() == be_dt_local.date():
+                display_str = f"{bs_dt_local.strftime('%H:%M')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}"
             else:
-                # Если дни разные — выводим полную дату для обоих
-                display_str = f"{bs_dt.strftime('%H:%M %d.%m.%Y')} → {be_dt.strftime('%H:%M %d.%m.%Y')}"
+                display_str = f"{bs_dt_local.strftime('%H:%M %d.%m.%Y')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}"
         except Exception:
             display_str = f"{_bs} → {_be}"
 
