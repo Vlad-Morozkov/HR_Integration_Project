@@ -2052,37 +2052,52 @@ else:
                         f'Error code: {response.status_code}.'
                     )
 
-        # Display Hire notification after rerun
-        if st.session_state.pop("application_hired_message", False):
-            st.success(t["application_hired"])
-
         # Display the Cancel Booking prompt for the hired candidate
         if "hired_bookings_to_cancel" in st.session_state:
             prompt_info = st.session_state["hired_bookings_to_cancel"]
             candidate_name = prompt_info["name"]
             bookings_list = prompt_info["bookings"]
             
-            # Форматируем ВСЕ даты для уведомления (с учетом начала и конца)
-            formatted_times = []
             tz_offset = st.session_state.get("user_tz_offset", 0.0)
             
+            # 1. Собираем все интервалы в локальном времени и сортируем их
+            intervals = []
             for b in bookings_list:
                 try:
-                    bs_dt = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None)
-                    be_dt = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None)
-                    
-                    bs_dt_local = bs_dt + timedelta(hours=tz_offset)
-                    be_dt_local = be_dt + timedelta(hours=tz_offset)
-                    
-                    # Логика красивого формата с переходами
-                    if bs_dt_local.date() == be_dt_local.date():
-                        formatted_times.append(f"{bs_dt_local.strftime('%H:%M')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}")
-                    else:
-                        formatted_times.append(f"{bs_dt_local.strftime('%H:%M %d.%m.%Y')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}")
+                    s = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
+                    e = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
+                    intervals.append([s, e])
                 except Exception:
                     pass
             
-            # Объединяем все даты через запятую
+            intervals.sort(key=lambda x: x[0])
+            
+            # 2. Объединяем последовательные слоты (только в один день)
+            merged_intervals = []
+            for current in intervals:
+                if not merged_intervals:
+                    merged_intervals.append(current)
+                else:
+                    last = merged_intervals[-1]
+                    
+                    # Проверяем, что день один и тот же И время идет подряд (или пересекается)
+                    is_same_day = current[0].date() == last[1].date()
+                    is_consecutive = current[0] <= last[1]
+                    
+                    if is_same_day and is_consecutive:
+                        # Расширяем конец предыдущего слота
+                        last[1] = max(last[1], current[1]) 
+                    else:
+                        merged_intervals.append(current)
+                        
+            # 3. Форматируем объединенные интервалы в красивую строку
+            formatted_times = []
+            for s, e in merged_intervals:
+                if s.date() == e.date():
+                    formatted_times.append(f"{s.strftime('%H:%M')} → {e.strftime('%H:%M %d.%m.%Y')}")
+                else:
+                    formatted_times.append(f"{s.strftime('%H:%M %d.%m.%Y')} → {e.strftime('%H:%M %d.%m.%Y')}")
+            
             time_str = ", ".join(formatted_times)
 
             # Само уведомление
