@@ -280,6 +280,7 @@ TEXTS = {
         "cancel_booking":   "Cancel Booking",
         "booking_cancelled":    "Interview booking cancelled successfully.",
         "canceling_booking":    "Canceling booking. Please wait...",
+        "selected_booking": "Selected booking",
 
         # Application's notiffications
 
@@ -439,7 +440,7 @@ TEXTS = {
         "cancel_booking":   "Отменить собеседование",
         "booking_cancelled":    "Собеседование успешно отменено.",
         "canceling_booking":    "Отмена собеседования. Подождите подалуйста.",        
-
+        "selected_booking":     "Выбранная запись",
         # Сообщения 
         
         "interview_ready":       "ТЕХНИЧЕСКОЕ Invitation data prepared. Ready for next step.",
@@ -1630,11 +1631,15 @@ else:
                     slot_color = app_color_map[app_id]
 
                     is_selected = (selected_booking_uid == slot["booking_uid"])
+                    
+                    # Ищем имя кандидата по ID заявки
+                    app = next((a for a in all_applications if a["id"] == app_id), None)
+                    candidate_name = app["full_name"] if app else booked_title
 
                     # Pass the slot natively as ONE block (no more 30-min chunks)
                     event = {
                         "id": slot["booking_uid"],
-                        "title": booked_title,
+                        "title": candidate_name,  # <-- ТЕПЕРЬ ЗДЕСЬ ИМЯ
                         "start": slot["start"],
                         "end": slot["end"],
                         "backgroundColor": slot_color,
@@ -1843,6 +1848,9 @@ else:
                     if booking_uid and st.session_state.get("selected_booking_uid") != booking_uid:
                         st.session_state["selected_booking_uid"] = booking_uid
 
+                        # СОХРАНЯЕМ ИМЯ ИЗ КАЛЕНДАРЯ
+                        st.session_state["selected_booking_name"] = clicked_event.get("title", "Candidate")                        
+
                         # Clear any previously selected free slot
                         st.session_state.pop("booking_start", None)
                         st.session_state.pop("booking_end", None)
@@ -2039,15 +2047,17 @@ else:
     # =========================================
     _bs = st.session_state.get("booking_start")
     _be = st.session_state.get("booking_end")
+    
+    _sel_b_start = st.session_state.get("selected_booking_start")
+    _sel_b_end = st.session_state.get("selected_booking_end")
+    _sel_b_name = st.session_state.get("selected_booking_name")
 
     if _bs and _be:
-        # Форматируем для отображения
+        # Это если выбран СВОБОДНЫЙ слот
         try:
-            # Read the UTC time and strip timezone info
             bs_dt = datetime.fromisoformat(_bs.replace("Z", "+00:00")).replace(tzinfo=None)
             be_dt = datetime.fromisoformat(_be.replace("Z", "+00:00")).replace(tzinfo=None)
             
-            # Convert UTC back to user's local time for display using the existing offset
             tz_offset = st.session_state.get("user_tz_offset", 0.0)
             bs_dt_local = bs_dt + timedelta(hours=tz_offset)
             be_dt_local = be_dt + timedelta(hours=tz_offset)
@@ -2066,14 +2076,41 @@ else:
             def _clear_slot():
                 st.session_state.pop("booking_start", None)
                 st.session_state.pop("booking_end", None)
-                st.session_state["calendar_version"] += 1  # Убиваем кэш
+                st.session_state["calendar_version"] += 1
 
-            st.button(
-                "✕", 
-                key="clear_slot_btn", 
-                on_click=_clear_slot, 
-                help=t.get("clear_slot", "Clear selection")
-            )
+            st.button("✕", key="clear_slot_btn", on_click=_clear_slot, help=t.get("clear_slot", "Clear selection"))
+
+    elif _sel_b_start and _sel_b_end:
+        # Это если выбран ЗАНЯТЫЙ слот (для отмены)
+        try:
+            bs_dt = datetime.fromisoformat(_sel_b_start.replace("Z", "+00:00")).replace(tzinfo=None)
+            be_dt = datetime.fromisoformat(_sel_b_end.replace("Z", "+00:00")).replace(tzinfo=None)
+            
+            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+            bs_dt_local = bs_dt + timedelta(hours=tz_offset)
+            be_dt_local = be_dt + timedelta(hours=tz_offset)
+            
+            if bs_dt_local.date() == be_dt_local.date():
+                display_str = f"{bs_dt_local.strftime('%H:%M')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}"
+            else:
+                display_str = f"{bs_dt_local.strftime('%H:%M %d.%m.%Y')} → {be_dt_local.strftime('%H:%M %d.%m.%Y')}"
+        except Exception:
+            display_str = f"{_sel_b_start} → {_sel_b_end}"
+
+        _msg_col, _clear_col = st.columns([6, 1])
+        with _msg_col:
+            # Используем синий цвет (st.info) для занятого слота
+            st.info(f"{t.get('selected_booking', 'Selected booking')}: {display_str} - {_sel_b_name}")
+        with _clear_col:
+            def _clear_booked_slot():
+                st.session_state.pop("selected_booking_uid", None)
+                st.session_state.pop("selected_booking_start", None)
+                st.session_state.pop("selected_booking_end", None)
+                st.session_state.pop("selected_booking_name", None)
+                st.session_state["calendar_version"] += 1
+
+            st.button("✕", key="clear_booked_slot_btn", on_click=_clear_booked_slot, help=t.get("clear_slot", "Clear selection"))
+
     else:
         st.info(t["select_slot_first"])
 
