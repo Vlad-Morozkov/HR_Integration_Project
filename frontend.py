@@ -278,6 +278,8 @@ TEXTS = {
 
         # Calendar
 
+        "collapse_calendar":    "Collapse calendar",
+        "expand_calendar":      "Expand calendar",
         "calendar":         "Calendar",
         "calendar_booked":  "Booked",
         "today":            "today",
@@ -448,6 +450,8 @@ TEXTS = {
 
         # Calendar
 
+        "collapse_calendar":    "Скрыть календарь",
+        "expand_calendar":      "Показать календарь",
         "calendar":         "Календарь",
         "calendar_booked":  "Занято",
         "today":            "Сегодня",
@@ -1526,8 +1530,16 @@ else:
                 new_state = not st.session_state.get("calendar_expanded", False)
                 st.session_state["calendar_expanded"] = new_state
                 if not new_state:
+                    # Очищаем свободный слот
                     st.session_state.pop("booking_start", None)
                     st.session_state.pop("booking_end", None)
+                    
+                    # Очищаем выбранную бронь (синюю рамку)
+                    st.session_state.pop("selected_booking_uid", None)
+                    st.session_state.pop("selected_booking_start", None)
+                    st.session_state.pop("selected_booking_end", None)
+                    st.session_state.pop("selected_booking_name", None)
+                    
                 # Убиваем кэш календаря, чтобы он не вернул старый dateClick
                 st.session_state["calendar_version"] += 1
 
@@ -1559,6 +1571,12 @@ else:
             if not st.session_state.get("calendar_expanded", False):
                 st.session_state.pop("booking_start", None)
                 st.session_state.pop("booking_end", None)
+
+                # Очищаем выбранную бронь
+                st.session_state.pop("selected_booking_uid", None)
+                st.session_state.pop("selected_booking_start", None)
+                st.session_state.pop("selected_booking_end", None)
+                st.session_state.pop("selected_booking_name", None)                
             
             # =========================================
             # Calendar — rendered only when expanded
@@ -1644,7 +1662,11 @@ else:
                 # 1 ver - use no 30 min chunks-------------
                 # Build events
                 calendar_events = []
-                color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
+                color_palette = [
+                                "#e74c3c", "#43abf1", "#08e021", "#f1c40f", "#9b59b6",
+                                "#f07000", "#1abc9c", "#004d9a", "#e84393", "#e75c11b6"
+                                ]
+
                 app_color_map = {}
 
                 booked_title = t.get("booked", "Booked")
@@ -1964,7 +1986,8 @@ else:
                 booking_end = st.session_state.get("booking_end")
 
                 if not booking_start or not booking_end:
-                    st.error(t["select_slot_first"])
+                    if st.session_state.get("calendar_expanded", False):
+                        st.error(t["select_slot_first"])
                 else:
                     interview_payload = {
                         "application_id": selected_application_id,
@@ -2039,51 +2062,52 @@ else:
                     )
 
             # ----- Hire -----
-            if hire_clicked:
-                # 1. Проверяем статус позиции
-                is_free = True
-                try:
-                    pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
-                    if pos_resp.status_code == 200:
-                        positions_list = pos_resp.json()
-                        pos = next((p for p in positions_list if p["id"] == selected_application["position_id"]), None)
-                        if pos:
-                            is_free = pos["is_free"]
-                except Exception:
-                    pass
+            if hire_clicked or st.session_state.get("force_hire_clicked"):
+                force_hire = st.session_state.pop("force_hire_clicked", False)
+                
+                if not force_hire:
+                    # Проверяем статус позиции
+                    is_free = True
+                    try:
+                        pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
+                        if pos_resp.status_code == 200:
+                            positions_list = pos_resp.json()
+                            pos = next((p for p in positions_list if p["id"] == selected_application["position_id"]), None)
+                            if pos:
+                                is_free = pos["is_free"]
+                    except Exception:
+                        pass
 
-                if not is_free:
-                    # Позиция занята! Включаем флаг предупреждения
-                    st.session_state["pending_hire_app_id"] = selected_application_id
-                    st.session_state["show_hire_warning"] = True
+                    if not is_free:
+                        # Позиция занята! Включаем флаг предупреждения
+                        st.session_state["pending_hire_app_id"] = selected_application_id
+                        st.session_state["show_hire_warning"] = True
+                        st.rerun()
+                        st.stop() # Останавливаем выполнение, чтобы не нанять сразу
+                        
+                # Сам процесс найма (сработает и для обычной кнопки, и для "Всё равно")
+                response = requests.patch(
+                    f"{API_URL}/api/applications/{selected_application_id}/status",
+                    json={"status": "Hired", "email": edited_email, "support_email": support_email},
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    st.session_state["application_hired_message"] = True
+                    
+                    candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
+                    if candidate_bookings:
+                        st.session_state["hired_bookings_to_cancel"] = {
+                            "name": selected_application["full_name"],
+                            "bookings": candidate_bookings
+                        }
                     st.rerun()
                 else:
-                    # Нанимаем
-                    response = requests.patch(
-                        f"{API_URL}/api/applications/{selected_application_id}/status",
-                        json={"status": "Hired", "email": edited_email, "support_email": support_email},
-                        timeout=10
-                    )
-                    if response.status_code == 200:
-                        st.session_state["application_hired_message"] = True
-                        
-                        candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
-                        if candidate_bookings:
-                            st.session_state["hired_bookings_to_cancel"] = {
-                                "name": selected_application["full_name"],
-                                "bookings": candidate_bookings
-                            }
-                        st.rerun()
-                    else:
-                        st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
-
-
+                    st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
 
             # =======================================================
             # 2. Предупреждение, если позиция занята
             # =======================================================
             if st.session_state.get("show_hire_warning") and st.session_state.get("pending_hire_app_id") == selected_application_id:
-                # СРАЗУ выключаем флаг, чтобы при обновлении страницы (F5) предупреждение не всплывало
                 st.session_state["show_hire_warning"] = False 
                 
                 st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
@@ -2091,31 +2115,13 @@ else:
                 col_yes, col_no = st.columns(2)
                 with col_yes:
                     if st.button(t.get("hire_anyway", "Принять кандидата всё равно"), type="primary"):
-                        # Нанимаем всё равно
-                        resp = requests.patch(
-                            f"{API_URL}/api/applications/{selected_application_id}/status",
-                            json={"status": "Hired", "email": edited_email, "support_email": support_email},
-                            timeout=10
-                        )
-                        if resp.status_code == 200:
-                            st.session_state["application_hired_message"] = True
-                            
-                            candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
-                            if candidate_bookings:
-                                st.session_state["hired_bookings_to_cancel"] = {
-                                    "name": selected_application["full_name"],
-                                    "bookings": candidate_bookings
-                                }
-                                
-                            # Убираем предупреждение
-                            st.session_state.pop("pending_hire_app_id", None)
-                            st.rerun()
-                        else:
-                            st.error(f'{t["hire_error"]} Error code: {resp.status_code}.')
+                        # Просто ставим флаг и перезагружаем страницу. API вызов сделает блок Hire выше.
+                        st.session_state["force_hire_clicked"] = True
+                        st.session_state.pop("pending_hire_app_id", None)
+                        st.rerun()
 
                 with col_no:
                     if st.button(t.get("cancel", "Отмена")):
-                        # Отменяем найм и просто закрываем предупреждение
                         st.session_state.pop("pending_hire_app_id", None)
                         st.rerun()
 
@@ -2280,7 +2286,8 @@ else:
             st.button("✕", key="clear_booked_slot_btn", on_click=_clear_booked_slot, help=t.get("clear_slot", "Clear selection"))
 
     else:
-        st.info(t["select_slot_first"])
+        if st.session_state.get("calendar_expanded", False):
+            st.info(t["select_slot_first"])
 
     # -----------------------------------------------------
     # Support Email
