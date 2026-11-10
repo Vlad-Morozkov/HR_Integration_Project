@@ -100,6 +100,27 @@ def show_duplicate_email_notice(
     js_email = json.dumps(str(email))
     js_copied = json.dumps(copied_message)
 
+    # --- ВОТ ЭТОГО НЕ ХВАТАЛО ---
+    html_content = f"""
+    <div style="padding: 12px; border: 1px solid #f5c6cb; background-color: #f8d7da; border-radius: 8px; color: #721c24; margin-bottom: 15px; font-family: sans-serif;">
+        <div style="margin-bottom: 8px;">
+            {safe_before}
+            <span 
+                style="font-weight: bold; cursor: pointer; text-decoration: underline; color: #0056b3;" 
+                onclick="navigator.clipboard.writeText({js_email}); alert({js_copied});"
+                title="{safe_copy_hint}"
+            >
+                {safe_email}
+            </span>
+            {safe_after}
+        </div>
+        <div style="font-size: 0.85em; color: #721c24; opacity: 0.8;">
+            {safe_cancel_hint}
+        </div>
+    </div>
+    """
+    st.markdown(html_content, unsafe_allow_html=True)
+
 
 # Local
 # API_URL = "http://127.0.0.1:8000" 
@@ -1296,7 +1317,13 @@ else:
             email_updated_flag = False
             force_ui_reset = False
 
-            for row in edited_data:
+            # Безопасная конвертация для любых версий Streamlit
+            if hasattr(edited_data, "to_dict"):
+                rows_to_check = edited_data.to_dict("records")
+            else:
+                rows_to_check = edited_data
+
+            for row in rows_to_check:
                 app_id = row.get("_app_id")
                 if not app_id:
                     continue
@@ -1312,10 +1339,10 @@ else:
                 if edited_email != original_email:
                     edited_email_normalized = str(edited_email).strip().casefold()
 
-                    # Проверка на дубликат в этой же должности
+                    # Проверка на дубликат в этой же должности (устойчиво к типам данных)
                     duplicate_exists = any(
-                        application["id"] != app_id
-                        and application["position_id"] == original_app["position_id"]
+                        str(application["id"]) != str(app_id)
+                        and str(application["position_id"]) == str(original_app["position_id"])
                         and application["status"] in ("New", "Hired")
                         and str(application["email"]).strip().casefold() == edited_email_normalized
                         for application in all_applications
@@ -1402,12 +1429,17 @@ else:
             # =========================================
             # Find selected rows
             # =========================================
-            selected_rows = [
-                index
-                for index, row
-                in enumerate(edited_data)
-                if row[t["select"]]
-            ]
+            if hasattr(edited_data, "iloc"):
+                # Если это DataFrame
+                selected_rows = edited_data[edited_data[t["select"]] == True].index.tolist()
+            else:
+                # Если это список словарей
+                selected_rows = [
+                    index
+                    for index, row
+                    in enumerate(edited_data)
+                    if row[t["select"]]
+                ]
 
             # Safe defaults — handlers below always have something to read
             review_clicked = False
