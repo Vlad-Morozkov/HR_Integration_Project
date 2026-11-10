@@ -184,13 +184,14 @@ TEXTS = {
         "no_active_bookings": "No candidates with active upcoming bookings found.",
         "date": "Date",
         "time": "Time",
-        "select_booking": "Select",
-        "reschedule_booking": "Reschedule",
-        "cancel_booking": "Cancel Booking",
-        "booking_url_missing": "URL not provided by backend",
+        "select_booking":           "Select",
+        "reschedule_booking":       "Reschedule",
+        "cancel_booking":           "Cancel Booking",
+        "booking_url_missing":      "URL not provided by backend",
         "cancel_booking_for_hired": "Cancel booking for Hired candidate",
-        "dismiss": "Dismiss",
-        "has_booking_at": "has a booking at",        
+        "dismiss":                  "Dismiss",
+        "has_booking_at":           "has a booking at",
+        "cancellation_ask":         "Do you need to cancel it?",                
      
         #----------
         # Notiffications
@@ -350,8 +351,10 @@ TEXTS = {
         "cancel_booking":           "Отменить",
         "booking_url_missing":      "backend не предоставил URL",
         "cancel_booking_for_hired": "Отменить запись для нанятого кандидата",
-        "dismiss": "Закрыть",
-        "has_booking_at": "имеет запись на",
+        "dismiss":                  "Закрыть",
+        "has_booking_at":           "имеет запись на",
+        "cancellation_ask":         "Хотите отменить?",
+
         #----------
         # Notiffications
         #----------
@@ -2028,19 +2031,16 @@ else:
                 if response.status_code == 200:
                     st.session_state["application_hired_message"] = True
                     
-                    # Ищем бронь этого кандидата
-                    candidate_booking = next(
-                        (s for s in booked_slots if s.get("application_id") == selected_application_id), 
-                        None
-                    )
+                    # Ищем ВСЕ брони этого кандидата
+                    candidate_bookings = [
+                        s for s in booked_slots if s.get("application_id") == selected_application_id
+                    ]
                     
-                    if candidate_booking:
-                        # Сохраняем данные брони, чтобы показать предупреждение после перезагрузки
-                        st.session_state["hired_booking_to_cancel"] = {
+                    if candidate_bookings:
+                        # Сохраняем список всех броней
+                        st.session_state["hired_bookings_to_cancel"] = {
                             "name": selected_application["full_name"],
-                            "booking_uid": candidate_booking["booking_uid"],
-                            "start": candidate_booking["start"],
-                            "end": candidate_booking["end"]
+                            "bookings": candidate_bookings
                         }
                         
                     st.rerun()
@@ -2055,43 +2055,55 @@ else:
             st.success(t["application_hired"])
 
         # Display the Cancel Booking prompt for the hired candidate
-        if "hired_booking_to_cancel" in st.session_state:
-            booking_info = st.session_state["hired_booking_to_cancel"]
+        if "hired_bookings_to_cancel" in st.session_state:
+            prompt_info = st.session_state["hired_bookings_to_cancel"]
+            candidate_name = prompt_info["name"]
+            bookings_list = prompt_info["bookings"]
             
-            # Форматируем время для уведомления
-            try:
-                bs_dt = datetime.fromisoformat(booking_info["start"].replace("Z", "+00:00")).replace(tzinfo=None)
-                tz_offset = st.session_state.get("user_tz_offset", 0.0)
-                bs_dt_local = bs_dt + timedelta(hours=tz_offset)
-                time_str = bs_dt_local.strftime('%H:%M %d.%m.%Y')
-            except Exception:
-                time_str = "scheduled time"
+            # Форматируем ВСЕ даты для уведомления
+            formatted_times = []
+            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+            
+            for b in bookings_list:
+                try:
+                    bs_dt = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                    bs_dt_local = bs_dt + timedelta(hours=tz_offset)
+                    formatted_times.append(bs_dt_local.strftime('%H:%M %d.%m.%Y'))
+                except Exception:
+                    pass
+            
+            # Объединяем все даты через запятую
+            time_str = ", ".join(formatted_times)
 
             # Само уведомление
-            st.warning(f"⚠️ **{booking_info['name']}** has a booking at **{time_str}**. Do you need to cancel it?")
+            st.warning(f"⚠️ **{candidate_name}** {t['has_booking_at']} **{time_str}**. {t['cancellation_ask']}")
             
             col_btn, col_empty = st.columns([1, 1])
             with col_btn:
                 if st.button(t.get("cancel_booking_for_hired", "Cancel booking for Hired candidate"), type="primary"):
-                    # Отправляем запрос на отмену
-                    cancel_resp = requests.post(
-                        f"{API_URL}/api/interviews/{booking_info['booking_uid']}/cancel",
-                        timeout=10
-                    )
+                    success_count = 0
+                    # Проходимся циклом по всем броням и отменяем каждую
+                    for b in bookings_list:
+                        cancel_resp = requests.post(
+                            f"{API_URL}/api/interviews/{b['booking_uid']}/cancel",
+                            timeout=10
+                        )
+                        if cancel_resp.status_code == 200:
+                            success_count += 1
                     
-                    if cancel_resp.status_code == 200:
-                        st.success("Booking cancelled successfully.")
-                        # Удаляем уведомление
-                        del st.session_state["hired_booking_to_cancel"]
-                        st.session_state["calendar_version"] += 1  # Обновляем календарь
-                        st.rerun()
+                    if success_count == len(bookings_list):
+                        st.success("All bookings cancelled successfully.")
                     else:
-                        st.error("Failed to cancel the booking. Please try again.")
+                        st.warning(f"Cancelled {success_count} out of {len(bookings_list)} bookings.")
+                    
+                    # Удаляем уведомление и обновляем календарь
+                    del st.session_state["hired_bookings_to_cancel"]
+                    st.session_state["calendar_version"] += 1
+                    st.rerun()
                         
-            # Добавляем кнопку, чтобы можно было просто закрыть уведомление (если не нужно отменять)
             with col_empty:
                 if st.button(t.get("dismiss", "Dismiss")):
-                    del st.session_state["hired_booking_to_cancel"]
+                    del st.session_state["hired_bookings_to_cancel"]
                     st.rerun()
 
         # Display Reject notification after rerun
