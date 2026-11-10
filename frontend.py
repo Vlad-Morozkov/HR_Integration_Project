@@ -188,6 +188,9 @@ TEXTS = {
         "reschedule_booking": "Reschedule",
         "cancel_booking": "Cancel Booking",
         "booking_url_missing": "URL not provided by backend",
+        "cancel_booking_for_hired": "Cancel booking for Hired candidate",
+        "dismiss": "Dismiss",
+        "has_booking_at": "has a booking at",        
      
         #----------
         # Notiffications
@@ -346,7 +349,9 @@ TEXTS = {
         "reschedule_booking":       "Изменить встречу",
         "cancel_booking":           "Отменить",
         "booking_url_missing":      "backend не предоставил URL",
-
+        "cancel_booking_for_hired": "Отменить запись для нанятого кандидата",
+        "dismiss": "Закрыть",
+        "has_booking_at": "имеет запись на",
         #----------
         # Notiffications
         #----------
@@ -2022,6 +2027,22 @@ else:
                 )
                 if response.status_code == 200:
                     st.session_state["application_hired_message"] = True
+                    
+                    # Ищем бронь этого кандидата
+                    candidate_booking = next(
+                        (s for s in booked_slots if s.get("application_id") == selected_application_id), 
+                        None
+                    )
+                    
+                    if candidate_booking:
+                        # Сохраняем данные брони, чтобы показать предупреждение после перезагрузки
+                        st.session_state["hired_booking_to_cancel"] = {
+                            "name": selected_application["full_name"],
+                            "booking_uid": candidate_booking["booking_uid"],
+                            "start": candidate_booking["start"],
+                            "end": candidate_booking["end"]
+                        }
+                        
                     st.rerun()
                 else:
                     st.error(
@@ -2032,6 +2053,46 @@ else:
         # Display Hire notification after rerun
         if st.session_state.pop("application_hired_message", False):
             st.success(t["application_hired"])
+
+        # Display the Cancel Booking prompt for the hired candidate
+        if "hired_booking_to_cancel" in st.session_state:
+            booking_info = st.session_state["hired_booking_to_cancel"]
+            
+            # Форматируем время для уведомления
+            try:
+                bs_dt = datetime.fromisoformat(booking_info["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                bs_dt_local = bs_dt + timedelta(hours=tz_offset)
+                time_str = bs_dt_local.strftime('%H:%M %d.%m.%Y')
+            except Exception:
+                time_str = "scheduled time"
+
+            # Само уведомление
+            st.warning(f"⚠️ **{booking_info['name']}** has a booking at **{time_str}**. Do you need to cancel it?")
+            
+            col_btn, col_empty = st.columns([1, 1])
+            with col_btn:
+                if st.button(t.get("cancel_booking_for_hired", "Cancel booking for Hired candidate"), type="primary"):
+                    # Отправляем запрос на отмену
+                    cancel_resp = requests.post(
+                        f"{API_URL}/api/interviews/{booking_info['booking_uid']}/cancel",
+                        timeout=10
+                    )
+                    
+                    if cancel_resp.status_code == 200:
+                        st.success("Booking cancelled successfully.")
+                        # Удаляем уведомление
+                        del st.session_state["hired_booking_to_cancel"]
+                        st.session_state["calendar_version"] += 1  # Обновляем календарь
+                        st.rerun()
+                    else:
+                        st.error("Failed to cancel the booking. Please try again.")
+                        
+            # Добавляем кнопку, чтобы можно было просто закрыть уведомление (если не нужно отменять)
+            with col_empty:
+                if st.button(t.get("dismiss", "Dismiss")):
+                    del st.session_state["hired_booking_to_cancel"]
+                    st.rerun()
 
         # Display Reject notification after rerun
         if st.session_state.pop("application_rejected_message", False):
