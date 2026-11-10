@@ -247,7 +247,11 @@ TEXTS = {
         "no_applications":       "No applications found.",
         "select_one":            "Select one application.",
         "select_only_one":       "Please select only one application.",
-        "candidate_already_hired":"This candidate is already hired",  
+        "candidate_already_hired":      "This candidate is already hired",
+        "position_occupied_warning":    
+                    "Position is already occupied. You can hire the candidate, but you need to check the number of slots.",
+        "hire_anyway":  "Hire candidate anyway",
+        "cancel":       "Cancel",          
 
         # Headers
 
@@ -413,6 +417,11 @@ TEXTS = {
         "select_one":            "Выберите одну заявку.",
         "select_only_one":       "Пожалуйста, выберите только одну заявку.",
         "candidate_already_hired":"Этот кандидат уже принят на работу",
+        "position_occupied_warning":    
+                "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок.",
+        "hire_anyway":  "Принять кандидата всё равно",
+        "cancel":       "Отмена",
+
 
         # Email buttons
 
@@ -1642,9 +1651,12 @@ else:
 
                     is_selected = (selected_booking_uid == slot["booking_uid"])
                     
-                    # Ищем имя кандидата по ID заявки
+                    # Ищем имя кандидата и позицию по ID заявки
                     app = next((a for a in all_applications if a["id"] == app_id), None)
-                    candidate_name = app["full_name"] if app else booked_title
+                    if app:
+                        candidate_name = f"{app['full_name']} ({app['position_name']})"
+                    else:
+                        candidate_name = booked_title
 
                     # Pass the slot natively as ONE block (no more 30-min chunks)
                     event = {
@@ -2021,36 +2033,82 @@ else:
 
             # ----- Hire -----
             if hire_clicked:
-                response = requests.patch(
-                    f"{API_URL}/api/applications/{selected_application_id}/status",
-                    json={
-                        "status": "Hired",
-                        "email": edited_email,
-                        "support_email": support_email
-                    },
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    st.session_state["application_hired_message"] = True
-                    
-                    # Ищем ВСЕ брони этого кандидата
-                    candidate_bookings = [
-                        s for s in booked_slots if s.get("application_id") == selected_application_id
-                    ]
-                    
-                    if candidate_bookings:
-                        # Сохраняем список всех броней
-                        st.session_state["hired_bookings_to_cancel"] = {
-                            "name": selected_application["full_name"],
-                            "bookings": candidate_bookings
-                        }
-                        
+                # 1. Проверяем статус позиции (свободна или занята)
+                is_free = True
+                try:
+                    pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
+                    if pos_resp.status_code == 200:
+                        positions_list = pos_resp.json()
+                        pos = next((p for p in positions_list if p["id"] == selected_application["position_id"]), None)
+                        if pos:
+                            is_free = pos["is_free"]
+                except Exception:
+                    pass # Если не удалось загрузить позиции, разрешаем найм по умолчанию
+
+                if not is_free:
+                    # Позиция занята! Сохраняем состояние и показываем предупреждение
+                    st.session_state["pending_hire_warning"] = selected_application_id
                     st.rerun()
                 else:
-                    st.error(
-                        f'{t["hire_error"]} '
-                        f'Error code: {response.status_code}.'
+                    # Позиция свободна — нанимаем как обычно
+                    response = requests.patch(
+                        f"{API_URL}/api/applications/{selected_application_id}/status",
+                        json={
+                            "status": "Hired",
+                            "email": edited_email,
+                            "support_email": support_email
+                        },
+                        timeout=10
                     )
+                    if response.status_code == 200:
+                        st.session_state["application_hired_message"] = True
+                        
+                        candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
+                        if candidate_bookings:
+                            st.session_state["hired_bookings_to_cancel"] = {
+                                "name": selected_application["full_name"],
+                                "bookings": candidate_bookings
+                            }
+                        st.rerun()
+                    else:
+                        st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
+
+            # =======================================================
+            # 2. Предупреждение, если позиция занята
+            # =======================================================
+            if st.session_state.get("pending_hire_warning") == selected_application_id:
+                st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
+                
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    if st.button(t.get("hire_anyway", "Принять кандидата всё равно"), type="primary"):
+                        # Нанимаем всё равно
+                        resp = requests.patch(
+                            f"{API_URL}/api/applications/{selected_application_id}/status",
+                            json={"status": "Hired", "email": edited_email, "support_email": support_email},
+                            timeout=10
+                        )
+                        if resp.status_code == 200:
+                            st.session_state["application_hired_message"] = True
+                            
+                            candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
+                            if candidate_bookings:
+                                st.session_state["hired_bookings_to_cancel"] = {
+                                    "name": selected_application["full_name"],
+                                    "bookings": candidate_bookings
+                                }
+                                
+                            # Убираем предупреждение
+                            del st.session_state["pending_hire_warning"]
+                            st.rerun()
+                        else:
+                            st.error(f'{t["hire_error"]} Error code: {resp.status_code}.')
+
+                with col_no:
+                    if st.button(t.get("cancel", "Отмена")):
+                        # Отменяем найм и просто закрываем предупреждение
+                        del st.session_state["pending_hire_warning"]
+                        st.rerun()
 
         # Display the Cancel Booking prompt for the hired candidate
         if "hired_bookings_to_cancel" in st.session_state:
