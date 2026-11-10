@@ -960,7 +960,7 @@ if mode == t["candidate"]:
                     
                     # Check if application status is 'New'
                     if app and app["status"] == "New":
-                        valid_candidates[app_id] = f"{app['full_name']} ({app['email']})"
+                        valid_candidates[app_id] = f"{app['full_name']} ({app['email']}). {app.get('position_name', '')}"
                         if app_id not in candidate_bookings:
                             candidate_bookings[app_id] = []
                         candidate_bookings[app_id].append(slot)
