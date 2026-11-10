@@ -1688,12 +1688,36 @@ else:
                         candidate_name = booked_title
 
                     # Pass the slot natively as ONE block (no more 30-min chunks)
+                    # Форматируем время для подсказки (в локальном времени)
+                    tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                    try:
+                        s_dt = datetime.fromisoformat(slot["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                        e_dt = datetime.fromisoformat(slot["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+                        s_local = s_dt + timedelta(hours=tz_offset)
+                        e_local = e_dt + timedelta(hours=tz_offset)
+                        
+                        # Берем данные для красивой подсказки
+                        if app:
+                            t_name = app["full_name"]
+                            t_pos = app.get("position_name", "No position")
+                        else:
+                            t_name = booked_title
+                            t_pos = ""
+                            
+                        time_str = f"{s_local.strftime('%H:%M')} - {e_local.strftime('%H:%M, %d.%m.%Y')}"
+                        
+                        # Собираем все в одну подсказку с переносами строк (\n)
+                        tooltip_text = f"{t_name}\n{t_pos}\n{time_str}"
+                    except Exception:
+                        tooltip_text = candidate_name
+
                     event = {
                         "id": slot["booking_uid"],
-                        "title": candidate_name,  # <-- ТЕПЕРЬ ЗДЕСЬ ИМЯ
+                        "title": candidate_name,
                         "start": slot["start"],
                         "end": slot["end"],
                         "backgroundColor": slot_color,
+                        "tooltip": tooltip_text,  # <-- Всплывающая подсказка
                     }
 
                     if is_selected:
