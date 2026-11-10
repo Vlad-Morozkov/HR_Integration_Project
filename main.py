@@ -608,6 +608,7 @@ async def calcom_webhook(request: Request, db: Session = Depends(get_db)):
     Принимает события от Cal.com.
     Проверяет подпись X-Cal-Signature-256.
     На BOOKING_CANCELLED помечает бронь как отменённую.
+    На BOOKING_RESCHEDULED обновляет время брони.
     """
     raw_body = await request.body()
     signature = request.headers.get("X-Cal-Signature-256")
@@ -641,7 +642,37 @@ async def calcom_webhook(request: Request, db: Session = Depends(get_db)):
         else:
             logging.warning(f"Webhook cancellation for unknown/ already-cancelled uid={booking_uid}")
 
-    # BOOKING_CREATED / RESCHEDULED можно обработать позже
+    elif trigger == "BOOKING_RESCHEDULED":
+        booking_uid = data.get("uid")
+        if not booking_uid:
+            raise HTTPException(status_code=400, detail="Missing booking uid for reschedule")
+
+        # Cal.com sometimes sends 'startTime'/'endTime', sometimes 'start'/'end'
+        new_start_str = data.get("startTime") or data.get("start")
+        new_end_str = data.get("endTime") or data.get("end")
+
+        if new_start_str and new_end_str:
+            interview = db.query(Interview).filter(
+                Interview.calcom_uid == booking_uid,
+                Interview.status == "confirmed",
+            ).first()
+
+            if interview:
+                try:
+                    # Parse the ISO string from Cal.com and remove timezone info for the DB
+                    new_start_dt = datetime.fromisoformat(new_start_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    new_end_dt = datetime.fromisoformat(new_end_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    
+                    interview.booking_start = new_start_dt
+                    interview.booking_end = new_end_dt
+                    db.commit()
+                    logging.info(f"Interview {interview.id} rescheduled via webhook (new time: {new_start_dt})")
+                except Exception as e:
+                    logging.error(f"Failed to parse rescheduled time: {e}")
+                    db.rollback()
+            else:
+                logging.warning(f"Webhook reschedule for unknown/ already-cancelled uid={booking_uid}")
+
     return {"status": "ok"}
 
 # ==========================================
