@@ -296,7 +296,7 @@ TEXTS = {
         "select_slot_first":     "Please select a free time slot on the calendar.",
         "slot_already_booked":   "That slot is already booked.",
         "slot_unavailable":      "Selected unavailable time (set at Cal.com)",
-        "interview_ready":       "ТЕХНИЧЕСКОЕ Invitation data prepared. Ready for next step.",
+        "interview_ready":       "Invitation data prepared for booking",
         "slot_in_past":          "You select a slot in the past.",
         "selected_slot":         "Selected slot",
         "application_hired":     "Application hired.",
@@ -462,7 +462,7 @@ TEXTS = {
         "selected_booking":     "Выбранная запись",
         # Сообщения 
         
-        "interview_ready":       "ТЕХНИЧЕСКОЕ Invitation data prepared. Ready for next step.",
+        "interview_ready":       "Данные подготовлены для бронирования слота.",
         "slot_in_past":          "Вы выбрали прошедше время",
         "selected_slot":         "Выбрано время",        
         "select_slot_first":     "Выберите свободный слот в календаре",
@@ -1431,6 +1431,13 @@ else:
                 selected_application = applications[selected_index]
                 selected_application_id = selected_application["id"]
 
+                # --- ДОБАВИТЬ ЭТОТ БЛОК ---
+                if st.session_state.get("last_selected_app_for_hire") != selected_application_id:
+                    st.session_state["last_selected_app_for_hire"] = selected_application_id
+                    st.session_state["show_hire_warning"] = False
+                    st.session_state.pop("pending_hire_app_id", None)
+                # ---------------------------
+
                 # New selection → clear old slot, AUTO-EXPAND calendar
                 if st.session_state.get("active_application_id") != selected_application_id:
                     st.session_state["active_application_id"] = selected_application_id
@@ -2033,7 +2040,7 @@ else:
 
             # ----- Hire -----
             if hire_clicked:
-                # 1. Проверяем статус позиции (свободна или занята)
+                # 1. Проверяем статус позиции
                 is_free = True
                 try:
                     pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
@@ -2043,21 +2050,18 @@ else:
                         if pos:
                             is_free = pos["is_free"]
                 except Exception:
-                    pass # Если не удалось загрузить позиции, разрешаем найм по умолчанию
+                    pass
 
                 if not is_free:
-                    # Позиция занята! Сохраняем состояние и показываем предупреждение
-                    st.session_state["pending_hire_warning"] = selected_application_id
+                    # Позиция занята! Включаем флаг предупреждения
+                    st.session_state["pending_hire_app_id"] = selected_application_id
+                    st.session_state["show_hire_warning"] = True
                     st.rerun()
                 else:
-                    # Позиция свободна — нанимаем как обычно
+                    # Нанимаем
                     response = requests.patch(
                         f"{API_URL}/api/applications/{selected_application_id}/status",
-                        json={
-                            "status": "Hired",
-                            "email": edited_email,
-                            "support_email": support_email
-                        },
+                        json={"status": "Hired", "email": edited_email, "support_email": support_email},
                         timeout=10
                     )
                     if response.status_code == 200:
@@ -2073,10 +2077,15 @@ else:
                     else:
                         st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
 
+
+
             # =======================================================
             # 2. Предупреждение, если позиция занята
             # =======================================================
-            if st.session_state.get("pending_hire_warning") == selected_application_id:
+            if st.session_state.get("show_hire_warning") and st.session_state.get("pending_hire_app_id") == selected_application_id:
+                # СРАЗУ выключаем флаг, чтобы при обновлении страницы (F5) предупреждение не всплывало
+                st.session_state["show_hire_warning"] = False 
+                
                 st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
                 
                 col_yes, col_no = st.columns(2)
@@ -2099,7 +2108,7 @@ else:
                                 }
                                 
                             # Убираем предупреждение
-                            del st.session_state["pending_hire_warning"]
+                            st.session_state.pop("pending_hire_app_id", None)
                             st.rerun()
                         else:
                             st.error(f'{t["hire_error"]} Error code: {resp.status_code}.')
@@ -2107,7 +2116,7 @@ else:
                 with col_no:
                     if st.button(t.get("cancel", "Отмена")):
                         # Отменяем найм и просто закрываем предупреждение
-                        del st.session_state["pending_hire_warning"]
+                        st.session_state.pop("pending_hire_app_id", None)
                         st.rerun()
 
         # Display the Cancel Booking prompt for the hired candidate
