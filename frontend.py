@@ -100,7 +100,7 @@ def show_duplicate_email_notice(
     js_email = json.dumps(str(email))
     js_copied = json.dumps(copied_message)
 
-    # --- ВОТ ЭТОГО НЕ ХВАТАЛО ---
+    # --- ВОТ ЭТОТ БЛОК НУЖНО ДОБАВИТЬ, ЧТОБЫ ПОКАЗАТЬ ПЛАШКУ ---
     html_content = f"""
     <div style="padding: 12px; border: 1px solid #f5c6cb; background-color: #f8d7da; border-radius: 8px; color: #721c24; margin-bottom: 15px; font-family: sans-serif;">
         <div style="margin-bottom: 8px;">
@@ -1339,11 +1339,11 @@ else:
                 if edited_email != original_email:
                     edited_email_normalized = str(edited_email).strip().casefold()
 
-                    # Проверка на дубликат в этой же должности (устойчиво к типам данных)
+                    # Проверка на дубликат в этой же должности (пуленепробиваемая версия)
                     duplicate_exists = any(
-                        str(application["id"]) != str(app_id)
-                        and str(application["position_id"]) == str(original_app["position_id"])
-                        and application["status"] in ("New", "Hired")
+                        str(application["id"]).strip().casefold() != str(app_id).strip().casefold()
+                        and str(application["position_id"]).strip().casefold() == str(original_app["position_id"]).strip().casefold()
+                        and str(application["status"]).strip().casefold() in ("new", "hired")
                         and str(application["email"]).strip().casefold() == edited_email_normalized
                         for application in all_applications
                     )
