@@ -1380,6 +1380,15 @@ else:
             email_updated_flag = False
             force_ui_reset = False
 
+            # FIX 1.3:
+            # Снимаем блокировку email_duplicate_active в начале каждого запуска.
+            # Логика: дубликат обнаруживается в ТЕКУЩЕМ запуске → ставится флаг →
+            # st.rerun() → таблица перерисовывается с оригинальными email →
+            # на следующем запуске дубликата уже нет, и блокировать кнопки нечем.
+            # Флаг при этом выставляется заново только если дубликат снова обнаружен
+            # именно в этом запуске (см. блок `if duplicate_exists` ниже).
+            # st.session_state.pop("email_duplicate_active", None) # Избыточна
+
             for row in edited_data:
                 app_id = row.get("_app_id")
                 if not app_id:
@@ -1392,6 +1401,7 @@ else:
 
                 original_email = original_app["email"]
                 edited_email = row[t["email"]]
+
 
                 if edited_email != original_email:
                     edited_email_normalized = str(edited_email).strip().casefold()
@@ -1418,9 +1428,8 @@ else:
                     #     break # Выходим из цикла, чтобы не сохранять остальные
 
                     if duplicate_exists:
-                        st.session_state["email_duplicate_active"] = app_id
-                        st.session_state["email_duplicate_email"] = edited_email   # <- новое
-                        st.session_state["email_duplicate_show"] = True            # <- новое
+                        st.session_state["email_duplicate_email"] = edited_email
+                        st.session_state["email_duplicate_show"] = True
                         force_ui_reset = True
                         break
 
@@ -1452,7 +1461,6 @@ else:
                     #     break
                     
                     elif email_response.status_code == 409:
-                        st.session_state["email_duplicate_active"] = app_id
                         detail = email_response.json().get("detail", t["email_duplicate_active"])
                         if "already used for an active application" in detail:
                             st.session_state["email_duplicate_email"] = edited_email
@@ -1562,10 +1570,22 @@ else:
                 )
 
                 can_process = selected_application["status"] == "New"
-                email_duplicate_for_selected = (
-                    st.session_state.get("email_duplicate_active")
-                    == selected_application_id
-                )
+
+                # FIX 1.3 (robust):
+                # Считаем дубликат заново на каждом рендере по актуальным данным.
+                # Никаких сохранённых флагов в session_state — только «правда момента».
+                # Если редактирование уже откатилось (таблица перерисована с
+                # оригинальными email), дубликата не будет → кнопки разблокированы.
+                email_duplicate_for_selected = False
+                if edited_email:
+                    edited_email_norm = str(edited_email).strip().casefold()
+                    email_duplicate_for_selected = any(
+                        other["id"] != selected_application_id
+                        and other["status"] in ("New", "Hired")
+                        and other["position_id"] == selected_application["position_id"]
+                        and str(other["email"]).strip().casefold() == edited_email_norm
+                        for other in all_applications
+                    )
 
                 # Needed for Interview button — enabled only if a slot is picked
                 slot_selected = bool(
