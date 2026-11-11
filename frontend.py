@@ -94,18 +94,87 @@ def show_duplicate_email_notice(
     safe_email = html.escape(str(email))
     safe_before = html.escape(before)
     safe_after = html.escape(after)
-    safe_cancel_hint = html.escape(cancel_hint)
     safe_copy_hint = html.escape(copy_hint)
+    safe_copied = html.escape(copied_message)
 
     js_email = json.dumps(str(email))
     js_copied = json.dumps(copied_message)
 
+    html_content = f"""
+    <div style="
+        background-color: #fff3cd;
+        border: 1px solid #ffe69c;
+        border-radius: 0.5rem;
+        padding: 0.9rem 1rem;
+        font-family: 'Source Sans Pro', sans-serif;
+        font-size: 16px;
+        color: #664d03;
+        line-height: 1.5;
+    ">
+        <div style="margin-bottom: 0.4rem;">
+            <span style="font-weight: 700;">⚠️</span>
+            {safe_before}<span
+                id="email-link"
+                title="{safe_copy_hint}"
+                style="
+                    color: #0d6efd;
+                    text-decoration: underline;
+                    cursor: pointer;
+                    font-weight: 600;
+                "
+            >{safe_email}</span>{safe_after}<span
+                id="copy-feedback"
+                style="
+                    display: none;
+                    margin-left: 8px;
+                    color: #198754;
+                    font-weight: 600;
+                    font-size: 14px;
+                "
+            ></span>
+        </div>
+        <div style="font-style: italic; opacity: 0.75; font-size: 14px;">{safe_copy_hint}</div>
+    </div>
+    <script>
+        const emailValue = {js_email};
+        const copiedText = {js_copied};
+
+        function copyToClipboard(text) {{
+            if (navigator.clipboard && window.isSecureContext) {{
+                return navigator.clipboard.writeText(text);
+            }} else {{
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try {{ document.execCommand('copy'); }} catch (e) {{}}
+                document.body.removeChild(ta);
+                return Promise.resolve();
+            }}
+        }}
+
+        document.getElementById('email-link').addEventListener('click', async function() {{
+            try {{
+                await copyToClipboard(emailValue);
+            }} catch (e) {{}}
+
+            const fb = document.getElementById('copy-feedback');
+            fb.textContent = copiedText;
+            fb.style.display = 'inline-block';
+            setTimeout(function() {{ fb.style.display = 'none'; }}, 2000);
+        }});
+    </script>
+    """
+
+    components.html(html_content, height=110)
 
 # Local
-# API_URL = "http://127.0.0.1:8000" 
+API_URL = "http://127.0.0.1:8000" 
 
 # Prod
-API_URL = "https://hr-integration-project-swart.vercel.app"
+# API_URL = "https://hr-integration-project-swart.vercel.app"
 
 
 # =========================================================
@@ -432,7 +501,7 @@ TEXTS = {
         # Email notifs
 
         "email_duplicate_active":
-            "Этот email {email} уже используется в активной заявке на эту должность.",
+            "Почта {email} уже используется в активной заявке на ту же должность.",
         "cancel_email_changes":  "Нажмите Обновить, чтобы отменить изменение email",
         "click_email_to_copy":   "Нажмите, чтобы скопировать",
         "email_copied":          "Email скопирован!",
@@ -1289,6 +1358,21 @@ else:
                 }
             )
 
+
+            # -------------------------------------------------
+            # Deferred duplicate-email notice (shown after rerun)
+            # -------------------------------------------------
+            if st.session_state.pop("email_duplicate_show", False):
+                pending_email = st.session_state.pop("email_duplicate_email", None)
+                if pending_email is not None:
+                    show_duplicate_email_notice(
+                        t["email_duplicate_active"],
+                        pending_email,
+                        t["cancel_email_changes"],
+                        t["email_copied"],
+                        t["click_email_to_copy"]
+                    )
+                    
             # -------------------------------------------------
             # Detect and save changed emails
             # -------------------------------------------------
@@ -1321,17 +1405,24 @@ else:
                         for application in all_applications
                     )
 
+                    # if duplicate_exists:
+                    #     st.session_state["email_duplicate_active"] = app_id
+                    #     show_duplicate_email_notice(
+                    #         t["email_duplicate_active"],
+                    #         edited_email,
+                    #         t["cancel_email_changes"],
+                    #         t["email_copied"],
+                    #         t["click_email_to_copy"]
+                    #     )
+                    #     force_ui_reset = True
+                    #     break # Выходим из цикла, чтобы не сохранять остальные
+
                     if duplicate_exists:
                         st.session_state["email_duplicate_active"] = app_id
-                        show_duplicate_email_notice(
-                            t["email_duplicate_active"],
-                            edited_email,
-                            t["cancel_email_changes"],
-                            t["email_copied"],
-                            t["click_email_to_copy"]
-                        )
+                        st.session_state["email_duplicate_email"] = edited_email   # <- новое
+                        st.session_state["email_duplicate_show"] = True            # <- новое
                         force_ui_reset = True
-                        break # Выходим из цикла, чтобы не сохранять остальные
+                        break
 
                     st.session_state.pop("email_duplicate_active", None)
 
@@ -1344,21 +1435,33 @@ else:
 
                     if email_response.status_code == 200:
                         email_updated_flag = True
+                    # elif email_response.status_code == 409:
+                    #     st.session_state["email_duplicate_active"] = app_id
+                    #     detail = email_response.json().get("detail", t["email_duplicate_active"])
+                    #     if "already used for an active application" in detail:
+                    #         show_duplicate_email_notice(
+                    #             t["email_duplicate_active"],
+                    #             edited_email,
+                    #             t["cancel_email_changes"],
+                    #             t["email_copied"],
+                    #             t["click_email_to_copy"]
+                    #         )
+                    #     else:
+                    #         st.error(detail)
+                    #     force_ui_reset = True
+                    #     break
+                    
                     elif email_response.status_code == 409:
                         st.session_state["email_duplicate_active"] = app_id
                         detail = email_response.json().get("detail", t["email_duplicate_active"])
                         if "already used for an active application" in detail:
-                            show_duplicate_email_notice(
-                                t["email_duplicate_active"],
-                                edited_email,
-                                t["cancel_email_changes"],
-                                t["email_copied"],
-                                t["click_email_to_copy"]
-                            )
+                            st.session_state["email_duplicate_email"] = edited_email
+                            st.session_state["email_duplicate_show"] = True
                         else:
                             st.error(detail)
                         force_ui_reset = True
                         break
+
                     else:
                         detail = email_response.json().get("detail", "")
                         st.error(f'{t["email_update_error"]} {detail} (Error code: {email_response.status_code})')
