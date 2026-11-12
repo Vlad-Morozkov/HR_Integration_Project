@@ -184,6 +184,31 @@ API_URL = "http://127.0.0.1:8000"
 
 
 # =========================================================
+# КЭШИРУЕМЫЕ ЗАГРУЗКИ (Способ Б)
+# =========================================================
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_all_applications(api_url: str) -> list:
+    """Все заявки. Кэш живет 15 секунд."""
+    response = requests.get(f"{api_url}/api/applications", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_positions(api_url: str) -> list:
+    """Справочник должностей. Кэш живет 30 секунд."""
+    response = requests.get(f"{api_url}/api/positions", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_booked_slots(api_url: str) -> list:
+    """Занятые слоты собеседований. Кэш живет 15 секунд."""
+    response = requests.get(f"{api_url}/api/interviews/booked-slots", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+# =========================================================
 # LANGUAGE
 # =========================================================
 
@@ -735,15 +760,7 @@ if mode == t["candidate"]:
     # -----------------------------------------------------
 
     try:
-
-        response = requests.get(
-            f"{API_URL}/api/positions",
-            timeout=15
-        )
-
-        response.raise_for_status()
-
-        positions = response.json()
+        positions = load_positions(API_URL)
 
         if not positions:
 
@@ -957,7 +974,7 @@ if mode == t["candidate"]:
                         )
 
                         if response.status_code == 201:
-
+                            load_all_applications.clear() # <-- Очищаем кэш
                             st.session_state["show_success"] = True
 
                             # Очистка постоянного хранилища
@@ -1003,138 +1020,134 @@ if mode == t["candidate"]:
 
     try:
         # Fetch all applications and booked slots
-        apps_resp = requests.get(f"{API_URL}/api/applications", timeout=5)
-        slots_resp = requests.get(f"{API_URL}/api/interviews/booked-slots", timeout=5)
+        all_apps = load_all_applications(API_URL)
+        all_slots = load_booked_slots(API_URL)
 
-        if apps_resp.status_code == 200 and slots_resp.status_code == 200:
-            all_apps = apps_resp.json()
-            all_slots = slots_resp.json()
+        # Use the existing timezone offset from your app's session state
+        tz_offset = st.session_state.get("user_tz_offset", 0.0)
+        now_utc = datetime.utcnow()
 
-            # Use the existing timezone offset from your app's session state
-            tz_offset = st.session_state.get("user_tz_offset", 0.0)
-            now_utc = datetime.utcnow()
+        valid_candidates = {}
+        candidate_bookings = {}
 
-            valid_candidates = {}
-            candidate_bookings = {}
+        # Filter and match applications with upcoming slots
+        for slot in all_slots:
+            app_id = slot.get("application_id")
+            
+            # Parse date safely as UTC
+            try:
+                s_dt_utc = datetime.fromisoformat(slot["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+            except Exception:
+                continue
 
-            # Filter and match applications with upcoming slots
-            for slot in all_slots:
-                app_id = slot.get("application_id")
+            # Check if booking is in the future
+            if s_dt_utc >= now_utc:
+                app = next((a for a in all_apps if a["id"] == app_id), None)
                 
-                # Parse date safely as UTC
-                try:
-                    s_dt_utc = datetime.fromisoformat(slot["start"].replace("Z", "+00:00")).replace(tzinfo=None)
-                except Exception:
-                    continue
+                # Check if application status is 'New'
+                if app and app["status"] == "New":
+                    valid_candidates[app_id] = f"{app['full_name']} ({app['email']}). {app.get('position_name', '')}"
+                    if app_id not in candidate_bookings:
+                        candidate_bookings[app_id] = []
+                    candidate_bookings[app_id].append(slot)
 
-                # Check if booking is in the future
-                if s_dt_utc >= now_utc:
-                    app = next((a for a in all_apps if a["id"] == app_id), None)
-                    
-                    # Check if application status is 'New'
-                    if app and app["status"] == "New":
-                        valid_candidates[app_id] = f"{app['full_name']} ({app['email']}). {app.get('position_name', '')}"
-                        if app_id not in candidate_bookings:
-                            candidate_bookings[app_id] = []
-                        candidate_bookings[app_id].append(slot)
+        if not valid_candidates:
+            st.info(t.get("no_active_bookings", "No candidates with active upcoming bookings found."))
+        else:
+            # Dropdown ahead of table
+            selected_app_id = st.selectbox(
+                t.get("select_candidate_booking", "Select Candidate"),
+                options=list(valid_candidates.keys()),
+                format_func=lambda x: valid_candidates[x],
+                key="candidate_booking_selector"
+            )
 
-            if not valid_candidates:
-                st.info(t.get("no_active_bookings", "No candidates with active upcoming bookings found."))
-            else:
-                # Dropdown ahead of table
-                selected_app_id = st.selectbox(
-                    t.get("select_candidate_booking", "Select Candidate"),
-                    options=list(valid_candidates.keys()),
-                    format_func=lambda x: valid_candidates[x],
-                    key="candidate_booking_selector"
+            if selected_app_id:
+                bookings = candidate_bookings[selected_app_id]
+
+                # Prepare table data
+                table_data = []
+                for b in bookings:
+                    try:
+                        s_dt_utc = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+                        e_dt_utc = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+
+                        # Apply the local time offset
+                        s_dt_local = s_dt_utc + timedelta(hours=tz_offset)
+                        e_dt_local = e_dt_utc + timedelta(hours=tz_offset)
+                    except Exception:
+                        continue
+                        
+                    # Select column is first
+                    table_data.append({
+                        t.get("select_booking", "Select"): False,
+                        "_id": b["booking_uid"],
+                        t.get("date", "Date"): s_dt_local.strftime("%d-%m-%Y"),
+                        t.get("time", "Time"): f"{s_dt_local.strftime('%H:%M')} - {e_dt_local.strftime('%H:%M')}",
+                        # Check multiple possible backend keys for links
+                        "cancel_url": b.get("cancel_url", b.get("cancel_link", "#")),
+                        "reschedule_url": b.get("reschedule_url", b.get("reschedule_link", "#"))
+                    })
+
+                # Table with Checkbox
+                edited_df = st.data_editor(
+                    table_data,
+                    hide_index=True,
+                    width="stretch",
+                    disabled=[
+                        "_id", 
+                        t.get("date", "Date"), 
+                        t.get("time", "Time"), 
+                        "cancel_url", 
+                        "reschedule_url"
+                    ],
+                    column_config={
+                        "_id": None,
+                        "cancel_url": None, 
+                        "reschedule_url": None, 
+                        t.get("select_booking", "Select"): st.column_config.CheckboxColumn(
+                            t.get("select_booking", "Select"),
+                            width="small" 
+                        )
+                    },
+                    key=f"candidate_booking_table_{selected_app_id}"
                 )
 
-                if selected_app_id:
-                    bookings = candidate_bookings[selected_app_id]
+                # Safe selection logic for both List and DataFrame (Fixes crash & disabled buttons)
+                select_col = t.get("select_booking", "Select")
+                if hasattr(edited_df, "iloc"):
+                    selected_rows = edited_df[edited_df[select_col] == True].to_dict("records")
+                else:
+                    selected_rows = [row for row in edited_df if row.get(select_col) is True]
 
-                    # Prepare table data
-                    table_data = []
-                    for b in bookings:
-                        try:
-                            s_dt_utc = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None)
-                            e_dt_utc = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+                final_cancel_url = "#"
+                final_reschedule_url = "#"
 
-                            # Apply the local time offset
-                            s_dt_local = s_dt_utc + timedelta(hours=tz_offset)
-                            e_dt_local = e_dt_utc + timedelta(hours=tz_offset)
-                        except Exception:
-                            continue
-                            
-                        # Select column is first
-                        table_data.append({
-                            t.get("select_booking", "Select"): False,
-                            "_id": b["booking_uid"],
-                            t.get("date", "Date"): s_dt_local.strftime("%d-%m-%Y"),
-                            t.get("time", "Time"): f"{s_dt_local.strftime('%H:%M')} - {e_dt_local.strftime('%H:%M')}",
-                            # Check multiple possible backend keys for links
-                            "cancel_url": b.get("cancel_url", b.get("cancel_link", "#")),
-                            "reschedule_url": b.get("reschedule_url", b.get("reschedule_link", "#"))
-                        })
+                if len(selected_rows) == 1:
+                    final_cancel_url = selected_rows[0].get("cancel_url", "#")
+                    final_reschedule_url = selected_rows[0].get("reschedule_url", "#")
+                elif len(selected_rows) > 1:
+                    st.warning(t.get("select_only_one", "Please select only one booking at a time."))
 
-                    # Table with Checkbox
-                    edited_df = st.data_editor(
-                        table_data,
-                        hide_index=True,
-                        use_container_width=True,
-                        disabled=[
-                            "_id", 
-                            t.get("date", "Date"), 
-                            t.get("time", "Time"), 
-                            "cancel_url", 
-                            "reschedule_url"
-                        ],
-                        column_config={
-                            "_id": None,
-                            "cancel_url": None, 
-                            "reschedule_url": None, 
-                            t.get("select_booking", "Select"): st.column_config.CheckboxColumn(
-                                t.get("select_booking", "Select"),
-                                width="small" 
-                            )
-                        },
-                        key=f"candidate_booking_table_{selected_app_id}"
+                # Buttons under the table
+                btn_col1, btn_col2 = st.columns(2)
+                
+                with btn_col1:
+                    st.link_button(
+                        t.get("reschedule_booking", "Reschedule"),
+                        url=final_reschedule_url,
+                        disabled=(len(selected_rows) != 1 or final_reschedule_url == "#"),
+                        width="stretch"
                     )
-
-                    # Safe selection logic for both List and DataFrame (Fixes crash & disabled buttons)
-                    select_col = t.get("select_booking", "Select")
-                    if hasattr(edited_df, "iloc"):
-                        selected_rows = edited_df[edited_df[select_col] == True].to_dict("records")
-                    else:
-                        selected_rows = [row for row in edited_df if row.get(select_col) is True]
-
-                    final_cancel_url = "#"
-                    final_reschedule_url = "#"
-
-                    if len(selected_rows) == 1:
-                        final_cancel_url = selected_rows[0].get("cancel_url", "#")
-                        final_reschedule_url = selected_rows[0].get("reschedule_url", "#")
-                    elif len(selected_rows) > 1:
-                        st.warning(t.get("select_only_one", "Please select only one booking at a time."))
-
-                    # Buttons under the table
-                    btn_col1, btn_col2 = st.columns(2)
                     
-                    with btn_col1:
-                        st.link_button(
-                            t.get("reschedule_booking", "Reschedule"),
-                            url=final_reschedule_url,
-                            disabled=(len(selected_rows) != 1 or final_reschedule_url == "#"),
-                            use_container_width=True
-                        )
-                        
-                    with btn_col2:
-                        st.link_button(
-                            t.get("cancel_booking", "Cancel Booking"),
-                            url=final_cancel_url,
-                            disabled=(len(selected_rows) != 1 or final_cancel_url == "#"),
-                            use_container_width=True
-                        )
-                        
+                with btn_col2:
+                    st.link_button(
+                        t.get("cancel_booking", "Cancel Booking"),
+                        url=final_cancel_url,
+                        disabled=(len(selected_rows) != 1 or final_cancel_url == "#"),
+                        width="stretch"
+                    )
+                    
     except requests.RequestException as e:
         st.error(f"Could not load bookings: {e}")    
 
@@ -1149,18 +1162,9 @@ else:
     # -----------------------------------------------------
 
     def _collect_candidate_bookings(application_id: int) -> list:
-        """
-        Возвращает список будущих броней кандидата.
-        Не падает, если сервер недоступен — возвращает [].
-        """
         try:
-            resp = requests.get(
-                f"{API_URL}/api/interviews/booked-slots",
-                timeout=5,
-            )
-            resp.raise_for_status()
-            slots = resp.json()
-        except requests.RequestException:
+            slots = load_booked_slots(API_URL)
+        except Exception:
             return []
         return [
             s for s in slots
@@ -1195,6 +1199,9 @@ else:
     
     with refresh_col:
         if st.button(t["refresh"]):
+            load_all_applications.clear()
+            load_positions.clear()
+            load_booked_slots.clear()
             st.session_state["editor_version"] = (
                 st.session_state.get("editor_version", 0) + 1
             )
@@ -1284,89 +1291,21 @@ else:
     # -----------------------------------------------------
 
     try:
-        response = requests.get(
-            f"{API_URL}/api/applications",
-            params={
-                "position": st.session_state["position_filter"],
-                "full_name": st.session_state["full_name_filter"]
-            },
-            timeout=10
-        )
-        response.raise_for_status()
+        # Теперь скачиваем ВСЕ заявки один раз и фильтруем на клиенте
+        all_applications = load_all_applications(API_URL)
 
-        applications = response.json()
+        position_q = st.session_state["position_filter"].strip().casefold()
+        full_name_q = st.session_state["full_name_filter"].strip().casefold()
+        email_q = st.session_state["email_filter"].strip().casefold()
 
-        # Фильтр по email на клиенте (как было)
-        email_query = st.session_state["email_filter"].strip().casefold()
-        if email_query:
-            applications = [
-                application
-                for application in applications
-                if email_query in str(application.get("email", "")).casefold()
-            ]
+        applications = all_applications
 
-        # FIX 1.7 (часть 1):
-        # Второй запрос нужен ТОЛЬКО когда фильтры активны.
-        # Если фильтров нет — отфильтрованный и полный списки идентичны,
-        # повторный запрос бессмысленен.
-        filters_active = bool(
-            st.session_state["position_filter"].strip()
-            or st.session_state["full_name_filter"].strip()
-            or st.session_state["email_filter"].strip()
-        )
-
-        if filters_active:
-            all_applications_response = requests.get(
-                f"{API_URL}/api/applications",
-                timeout=5
-            )
-            all_applications_response.raise_for_status()
-            all_applications = all_applications_response.json()
-        else:
-            all_applications = applications
-        # response = requests.get(
-        #     f"{API_URL}/api/applications",
-        #     params={
-        #         "position":
-        #             st.session_state[
-        #                 "position_filter"
-        #             ],
-
-        #         "full_name":
-        #             st.session_state[
-        #                 "full_name_filter"
-        #             ]
-        #     },
-        #     timeout=10
-        # )
-
-        
-        # response.raise_for_status()
-
-
-        # applications = response.json()
-
-        # # Filter applications by email
-        # email_query = st.session_state["email_filter"].strip().casefold()
-
-        # if email_query:
-        #     applications = [
-        #         application
-        #         for application in applications
-        #         if email_query in str(
-        #             application.get("email", "")
-        #         ).casefold()
-        #     ]
-
-
-        # all_applications_response = requests.get(
-        #     f"{API_URL}/api/applications",
-        #     timeout=5
-        # )
-        
-        # all_applications_response.raise_for_status()
-
-        # all_applications = all_applications_response.json()
+        if position_q:
+            applications = [a for a in applications if position_q in str(a.get("position_name", "")).casefold()]
+        if full_name_q:
+            applications = [a for a in applications if full_name_q in str(a.get("full_name", "")).casefold()]
+        if email_q:
+            applications = [a for a in applications if email_q in str(a.get("email", "")).casefold()]
 
         # -------------------------------------------------
         # No applications
@@ -1418,7 +1357,7 @@ else:
             edited_data = st.data_editor(
                 display_data,
                 key=f"edited_data_{st.session_state.get('editor_version', 0)}",
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 disabled=[
                     t["position"],
@@ -1524,22 +1463,8 @@ else:
                     )
 
                     if email_response.status_code == 200:
+                        load_all_applications.clear() # <-- Очищаем кэш
                         email_updated_flag = True
-                    # elif email_response.status_code == 409:
-                    #     st.session_state["email_duplicate_active"] = app_id
-                    #     detail = email_response.json().get("detail", t["email_duplicate_active"])
-                    #     if "already used for an active application" in detail:
-                    #         show_duplicate_email_notice(
-                    #             t["email_duplicate_active"],
-                    #             edited_email,
-                    #             t["cancel_email_changes"],
-                    #             t["email_copied"],
-                    #             t["click_email_to_copy"]
-                    #         )
-                    #     else:
-                    #         st.error(detail)
-                    #     force_ui_reset = True
-                    #     break
                     
                     elif email_response.status_code == 409:
                         detail = email_response.json().get("detail", t["email_duplicate_active"])
@@ -1610,8 +1535,6 @@ else:
                 )
                 st.rerun()
                   
-
-            # Look here
             # =========================================
             # Calendar expand/collapse state (default: collapsed)
             # =========================================
@@ -2073,13 +1996,8 @@ else:
 
                 # Fetch booked slots from backend
                 try:
-                    booked_resp = requests.get(
-                        f"{API_URL}/api/interviews/booked-slots",
-                        timeout=5,
-                    )
-                    booked_resp.raise_for_status()
-                    booked_slots = booked_resp.json()
-                except requests.RequestException as e:
+                    booked_slots = load_booked_slots(API_URL)
+                except Exception as e:
                     st.warning(f"Could not load booked slots: {e}")
                     booked_slots = []
 
@@ -2169,105 +2087,6 @@ else:
                     custom_css=bold_frame_css,  # <--- This is the magic line
                     key=f"booking_calendar_v{st.session_state['calendar_version']}",
                 )
-                # ver 1 end ----------------------
-
-                # Split bookings into 30-min chunks for nicer display
-
-                # # 3 ver -----------------------
-                # # Build events
-                # calendar_events = []
-                # color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
-                # app_color_map = {}
-
-                # booked_title = t.get("booked", "Booked")
-                # selected_booking_uid = st.session_state.get("selected_booking_uid")
-
-                # for slot in booked_slots:
-                #     app_id = slot.get("application_id", "")
-                #     if app_id not in app_color_map:
-                #         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
-                #     slot_color = app_color_map[app_id]
-
-                #     is_selected = (selected_booking_uid == slot["booking_uid"])
-
-                #     # Pass the slot natively. FullCalendar handles multi-hour blocks perfectly.
-                #     event = {
-                #         "id": slot["booking_uid"],
-                #         "title": booked_title,
-                #         "start": slot["start"],
-                #         "end": slot["end"],
-                #         "backgroundColor": slot_color,  # This replaces "color" for background
-                #     }
-
-                #     if is_selected:
-                #         # Apply the dark blue frame INLINE - guaranteed to work on any version
-                #         event["borderColor"] = "#0B1F5E"
-                #         event["borderWidth"] = "3px"
-                #         event["textColor"] = "#ffffff" # Keeps text readable on the background
-
-                #     calendar_events.append(event)
-
-                #     # 3 ver end -----------------
-
-                # -----------------------------    
-                # 2 ver
-                # calendar_events = []
-                # color_palette = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6"]
-                # app_color_map = {}
-                
-                # # Берем перевод из словаря с фоллбэком на "Booked"
-                # booked_title = t.get("booked", "Booked")                
-
-                # for slot in booked_slots:
-                #     app_id = slot.get("application_id", "")
-                #     if app_id not in app_color_map:
-                #         app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
-                #     slot_color = app_color_map[app_id]
-
-                #     s_str = slot["start"].replace("Z", "+00:00")
-                #     e_str = slot["end"].replace("Z", "+00:00")
-                #     s_dt = datetime.fromisoformat(s_str)
-                #     e_dt = datetime.fromisoformat(e_str)
-
-                #     current = s_dt
-                #     is_first = True
-                #     while current < e_dt:
-                #         next_chunk = current + timedelta(minutes=30)
-                #         if next_chunk > e_dt:
-                #             next_chunk = e_dt
-                #         calendar_events.append({
-                #             "id": slot["booking_uid"],    
-                #             "title": booked_title if is_first else "",  # <-- ИСПОЛЬЗУЕМ ПЕРЕМЕННУЮ
-                #             "start": current.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                #             "end": next_chunk.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                #             "color": slot_color,
-                #         })
-                #         current = next_chunk
-                #         is_first = False
-
-                # # 1. Define your CSS in a variable
-                # selected_slot_css = """
-                #     .fc-event.selected-booking-side {
-                #         border-left: 3px solid #0B1F5E !important;
-                #         border-right: 3px solid #0B1F5E !important;
-                #     }
-                #     .fc-event.selected-booking-top {
-                #         border-top: 3px solid #0B1F5E !important;
-                #     }
-                #     .fc-event.selected-booking-bottom {
-                #         border-bottom: 3px solid #0B1F5E !important;
-                #     }
-                # """
-
-                # # 2. Call the calendar function, passing custom_css correctly
-                
-                # calendar_result = calendar(
-                #     events=calendar_events,
-                #     options=calendar_options,
-                #     # custom_css=selected_slot_css, # use with # 1.Define your CSS in a variable above
-                #     key=f"booking_calendar_v{st.session_state['calendar_version']}",  # <--- ВАЖНО
-                # )
-                # # 2 ver end -------------------------
 
                 # ----- Handle drag-select -----
                 if calendar_result and calendar_result.get("callback") == "select":
@@ -2383,7 +2202,8 @@ else:
                             )
 
                         if cancel_response.status_code == 200:
-
+                            load_booked_slots.clear() # <-- Очищаем кэш
+                            load_all_applications.clear() # <-- Очищаем кэш
                             # Clear selected booking
                             st.session_state.pop("selected_booking_uid", None)
                             st.session_state.pop("selected_booking_start", None)
@@ -2477,6 +2297,8 @@ else:
                         st.stop()
 
                     result = resp.json()
+                    load_booked_slots.clear() # <-- Очищаем кэш
+                    load_all_applications.clear() # <-- Очищаем кэш
                     st.session_state["interview_booking_uid"] = result.get("booking_uid", "")
                     st.session_state.pop("booking_start", None)
                     st.session_state.pop("booking_end", None)
@@ -2503,6 +2325,7 @@ else:
                     timeout=10
                 )
                 if response.status_code == 200:
+                    load_all_applications.clear() # <-- Очищаем кэш
                     st.session_state["application_rejected_message"] = True
                     # NEW: та же логика, что и при найме — предложить
                     # отменить будущие брони кандидата.
@@ -2525,12 +2348,10 @@ else:
                     # Проверка 1: позиция занята?
                     is_free = True
                     try:
-                        pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
-                        if pos_resp.status_code == 200:
-                            positions_list = pos_resp.json()
-                            pos = next((p for p in positions_list if p["id"] == selected_application["position_id"]), None)
-                            if pos:
-                                is_free = pos["is_free"]
+                        positions_list = load_positions(API_URL)
+                        pos = next((p for p in positions_list if p["id"] == selected_application["position_id"]), None)
+                        if pos:
+                            is_free = pos["is_free"]
                     except Exception:
                         pass
 
@@ -2558,6 +2379,8 @@ else:
                 )
 
                 if response.status_code == 200:
+                    load_all_applications.clear() # <-- Очищаем кэш
+                    load_positions.clear()         # <-- Очищаем кэш (позиция стала занята)
                     st.session_state["application_hired_message"] = True
                     _schedule_bookings_cancel_prompt(
                         selected_application_id,
@@ -2566,141 +2389,6 @@ else:
                     st.rerun()
                 else:
                     st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
-
-                # if response.status_code == 200:
-                #     st.session_state["application_hired_message"] = True
-
-                #     # FIX: booked_slots определён только при раскрытом календаре.
-                #     # Этот блок — отдельная фича «убрать будущие собеседования
-                #     # нанятого кандидата». Запрашиваем данные локально, чтобы
-                #     # работать независимо от состояния календаря.
-                #     try:
-                #         _hire_slots_resp = requests.get(
-                #             f"{API_URL}/api/interviews/booked-slots",
-                #             timeout=5,
-                #         )
-                #         _hire_slots_resp.raise_for_status()
-                #         _hire_slots = _hire_slots_resp.json()
-                #     except requests.RequestException:
-                #         _hire_slots = []
-
-                #     candidate_bookings = [
-                #         s for s in _hire_slots
-                #         if s.get("application_id") == selected_application_id
-                #     ]
-                #     if candidate_bookings:
-                #         st.session_state["bookings_to_cancel"] = {
-                #             "name": selected_application["full_name"],
-                #             "bookings": candidate_bookings
-                #         }
-                #     st.rerun()
-                # else:
-                #     st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
-
-
-            # Блок переехал под таблицу
-            # # =======================================================
-            # # 2. Предупреждение, если позиция занята
-            # # =======================================================
-            # if st.session_state.get("show_hire_warning") and st.session_state.get("pending_hire_app_id") == selected_application_id:
-            #     st.session_state["show_hire_warning"] = False 
-                
-            #     st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
-                
-            #     col_yes, col_no = st.columns(2)
-            #     with col_yes:
-            #         if st.button(t.get("hire_anyway", "Принять кандидата всё равно"), type="primary"):
-            #             # Просто ставим флаг и перезагружаем страницу. API вызов сделает блок Hire выше.
-            #             st.session_state["force_hire_clicked"] = True
-            #             st.session_state.pop("pending_hire_app_id", None)
-            #             st.rerun()
-
-            #     with col_no:
-            #         if st.button(t.get("cancel", "Отмена")):
-            #             st.session_state.pop("pending_hire_app_id", None)
-            #             st.rerun()
-
-        # # Display the Cancel Booking prompt for the hired candidate
-        # if "bookings_to_cancel" in st.session_state:
-        #     prompt_info = st.session_state["bookings_to_cancel"]
-        #     candidate_name = prompt_info["name"]
-        #     bookings_list = prompt_info["bookings"]
-            
-        #     tz_offset = st.session_state.get("user_tz_offset", 0.0)
-            
-        #     # 1. Собираем все интервалы в локальном времени и сортируем их
-        #     intervals = []
-        #     for b in bookings_list:
-        #         try:
-        #             s = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
-        #             e = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
-        #             intervals.append([s, e])
-        #         except Exception:
-        #             pass
-            
-        #     intervals.sort(key=lambda x: x[0])
-            
-        #     # 2. Объединяем последовательные слоты (только в один день)
-        #     merged_intervals = []
-        #     for current in intervals:
-        #         if not merged_intervals:
-        #             merged_intervals.append(current)
-        #         else:
-        #             last = merged_intervals[-1]
-                    
-        #             # Проверяем, что день один и тот же И время идет подряд (или пересекается)
-        #             is_same_day = current[0].date() == last[1].date()
-        #             is_consecutive = current[0] <= last[1]
-                    
-        #             if is_same_day and is_consecutive:
-        #                 # Расширяем конец предыдущего слота
-        #                 last[1] = max(last[1], current[1]) 
-        #             else:
-        #                 merged_intervals.append(current)
-                        
-        #     # 3. Форматируем объединенные интервалы в красивую строку
-        #     formatted_times = []
-        #     for s, e in merged_intervals:
-        #         if s.date() == e.date():
-        #             formatted_times.append(f"{s.strftime('%H:%M')} → {e.strftime('%H:%M %d.%m.%Y')}")
-        #         else:
-        #             formatted_times.append(f"{s.strftime('%H:%M %d.%m.%Y')} → {e.strftime('%H:%M %d.%m.%Y')}")
-            
-        #     time_str = ", ".join(formatted_times)
-
-        #     # Само уведомление
-        #     st.warning(f"⚠️ **{candidate_name}** {t['has_booking_at']} **{time_str}**. {t['cancellation_ask']}")
-            
-        #     # Функции-коллбеки для кнопок (срабатывают ДО перерисовки страницы)
-        #     def _cancel_all_bookings():
-        #         for b in bookings_list:
-        #             requests.post(f"{API_URL}/api/interviews/{b['booking_uid']}/cancel", timeout=10)
-                
-        #         del st.session_state["bookings_to_cancel"]
-        #         st.session_state["calendar_version"] += 1
-        #         st.session_state["hired_cancelled_msg"] = True
-
-        #     def _dismiss_booking_prompt():
-        #         del st.session_state["bookings_to_cancel"]
-
-        #     # Кнопки с использованием on_click
-        #     col_btn, col_empty = st.columns([1, 1])
-        #     with col_btn:
-        #         st.button(
-        #             t.get("cancel_booking_for_reason", "Cancel booking for candidate"), 
-        #             type="primary",
-        #             on_click=_cancel_all_bookings
-        #         )
-                        
-        #     with col_empty:
-        #         st.button(
-        #             t.get("dismiss", "Dismiss"),
-        #             on_click=_dismiss_booking_prompt
-        #         )
-
-        # # Показываем сообщение об успешной отмене, если оно есть
-        # if st.session_state.pop("hired_cancelled_msg", False):
-        #     st.success(t["bookings_cancelled_successfully"])
 
     except requests.RequestException as e:
 
@@ -2796,13 +2484,7 @@ else:
     st.subheader(t["positions"])
 
     try:
-        positions_response = requests.get(
-            f"{API_URL}/api/positions",
-            timeout=5
-        )
-
-        positions_response.raise_for_status()
-        positions = positions_response.json()
+        positions = load_positions(API_URL)
 
         if positions:
             positions_data = []
@@ -2832,7 +2514,7 @@ else:
 
             st.dataframe(
                 styled_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -2863,6 +2545,7 @@ else:
             )
 
             if response.status_code == 201:
+                load_positions.clear() # <-- Очищаем кэш
                 st.session_state["position_added_message"] = True
                 st.session_state["new_position_input"] = ""   # Очищаем поле
             else:
@@ -2906,7 +2589,9 @@ else:
             )
 
         if response.status_code == 200:
-
+            load_all_applications.clear() # <-- Очищаем кэш
+            load_positions.clear()        # <-- Очищаем кэш
+            load_booked_slots.clear()     # <-- Очищаем кэш
             st.session_state["demo_loaded_message"] = True
             st.rerun()
 
