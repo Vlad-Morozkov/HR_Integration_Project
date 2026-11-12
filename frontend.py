@@ -15,6 +15,12 @@ import html
 import json
 import streamlit.components.v1 as components
 
+from validators import (
+    normalize_email,
+    is_valid_email,
+    is_valid_birth_date,
+    has_email_duplicate,
+)
 
 # 1. САМАЯ ПЕРВАЯ КОМАНДА STREAMLIT
 st.set_page_config(
@@ -867,10 +873,7 @@ if mode == t["candidate"]:
                 # Birth date validation (only after the user touched it)
                 # -----------------------------------------
 
-                birth_date_invalid = (
-                    st.session_state["store_birth_date"] is None
-                    or st.session_state["store_birth_date"] >= date.today()
-                )
+                birth_date_invalid = not is_valid_birth_date(st.session_state["store_birth_date"])
 
                 show_bdate_error = (
                     st.session_state["bdate_touched"] and birth_date_invalid
@@ -930,10 +933,7 @@ if mode == t["candidate"]:
                             )
                         )
 
-                    elif not re.fullmatch(
-                        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-                        st.session_state["store_email"].strip()
-                    ):
+                    elif not is_valid_email(st.session_state["store_email"]):
 
                         st.error(t["invalid_email"])
 
@@ -1486,16 +1486,14 @@ else:
                 edited_email = row[t["email"]]
 
 
-                if edited_email != original_email:
-                    edited_email_normalized = str(edited_email).strip().casefold()
-
+                if normalize_email(edited_email) != normalize_email(original_email):
                     # Проверка на дубликат в этой же должности
-                    duplicate_exists = any(
-                        application["id"] != app_id
-                        and application["position_id"] == original_app["position_id"]
-                        and application["status"] in ("New", "Hired")
-                        and str(application["email"]).strip().casefold() == edited_email_normalized
-                        for application in all_applications
+                    duplicate_exists = has_email_duplicate(
+                        email=edited_email,
+                        current_app_id=app_id,
+                        applications=all_applications,
+                        same_position_only=True,
+                        target_position_id=original_app["position_id"],
                     )
 
                     # if duplicate_exists:
@@ -1683,13 +1681,7 @@ else:
                     st.session_state["calendar_expanded"] = True
 
                 edited_email = edited_data[selected_index][t["email"]]
-                email_is_valid = bool(
-                    edited_email
-                    and re.fullmatch(
-                        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-                        str(edited_email).strip()
-                    )
-                )
+                email_is_valid = is_valid_email(edited_email)
 
                 can_process = selected_application["status"] == "New"
 
@@ -1698,28 +1690,25 @@ else:
                 # Никаких сохранённых флагов в session_state — только «правда момента».
                 # Если редактирование уже откатилось (таблица перерисована с
                 # оригинальными email), дубликата не будет → кнопки разблокированы.
-                email_duplicate_for_selected = False
-                if edited_email:
-                    edited_email_norm = str(edited_email).strip().casefold()
-                    email_duplicate_for_selected = any(
-                        other["id"] != selected_application_id
-                        and other["status"] in ("New", "Hired")
-                        and other["position_id"] == selected_application["position_id"]
-                        and str(other["email"]).strip().casefold() == edited_email_norm
-                        for other in all_applications
-                    )
+                email_duplicate_for_selected = has_email_duplicate(
+                    email=edited_email,
+                    current_app_id=selected_application_id,
+                    applications=all_applications,
+                    same_position_only=True,
+                    target_position_id=selected_application["position_id"],
+                )
 
                 # NEW: тот же email, но Hired на ДРУГОЙ должности
                 # (не блокирует кнопки — покажет подтверждение при клике на «Принять»).
                 same_email_hired_app = None
-                if edited_email:
-                    _edited_norm = str(edited_email).strip().casefold()
+                if is_valid_email(edited_email):
+                    _norm = normalize_email(edited_email)
                     same_email_hired_app = next(
                         (
                             app for app in all_applications
                             if app["id"] != selected_application_id
                             and app["status"] == "Hired"
-                            and str(app["email"]).strip().casefold() == _edited_norm
+                            and normalize_email(app["email"]) == _norm
                         ),
                         None
                     )
