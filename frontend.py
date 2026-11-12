@@ -1240,50 +1240,89 @@ else:
     # -----------------------------------------------------
 
     try:
-
         response = requests.get(
             f"{API_URL}/api/applications",
             params={
-                "position":
-                    st.session_state[
-                        "position_filter"
-                    ],
-
-                "full_name":
-                    st.session_state[
-                        "full_name_filter"
-                    ]
+                "position": st.session_state["position_filter"],
+                "full_name": st.session_state["full_name_filter"]
             },
             timeout=10
         )
-
-        
         response.raise_for_status()
-
 
         applications = response.json()
 
-        # Filter applications by email
+        # Фильтр по email на клиенте (как было)
         email_query = st.session_state["email_filter"].strip().casefold()
-
         if email_query:
             applications = [
                 application
                 for application in applications
-                if email_query in str(
-                    application.get("email", "")
-                ).casefold()
+                if email_query in str(application.get("email", "")).casefold()
             ]
 
-
-        all_applications_response = requests.get(
-            f"{API_URL}/api/applications",
-            timeout=5
+        # FIX 1.7 (часть 1):
+        # Второй запрос нужен ТОЛЬКО когда фильтры активны.
+        # Если фильтров нет — отфильтрованный и полный списки идентичны,
+        # повторный запрос бессмысленен.
+        filters_active = bool(
+            st.session_state["position_filter"].strip()
+            or st.session_state["full_name_filter"].strip()
+            or st.session_state["email_filter"].strip()
         )
-        
-        all_applications_response.raise_for_status()
 
-        all_applications = all_applications_response.json()
+        if filters_active:
+            all_applications_response = requests.get(
+                f"{API_URL}/api/applications",
+                timeout=5
+            )
+            all_applications_response.raise_for_status()
+            all_applications = all_applications_response.json()
+        else:
+            all_applications = applications
+        # response = requests.get(
+        #     f"{API_URL}/api/applications",
+        #     params={
+        #         "position":
+        #             st.session_state[
+        #                 "position_filter"
+        #             ],
+
+        #         "full_name":
+        #             st.session_state[
+        #                 "full_name_filter"
+        #             ]
+        #     },
+        #     timeout=10
+        # )
+
+        
+        # response.raise_for_status()
+
+
+        # applications = response.json()
+
+        # # Filter applications by email
+        # email_query = st.session_state["email_filter"].strip().casefold()
+
+        # if email_query:
+        #     applications = [
+        #         application
+        #         for application in applications
+        #         if email_query in str(
+        #             application.get("email", "")
+        #         ).casefold()
+        #     ]
+
+
+        # all_applications_response = requests.get(
+        #     f"{API_URL}/api/applications",
+        #     timeout=5
+        # )
+        
+        # all_applications_response.raise_for_status()
+
+        # all_applications = all_applications_response.json()
 
         # -------------------------------------------------
         # No applications
