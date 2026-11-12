@@ -1177,7 +1177,10 @@ else:
         st.session_state["email_filter"] = "" 
         
     if "full_name_filter" not in st.session_state:
-        st.session_state["full_name_filter"] = ""           
+        st.session_state["full_name_filter"] = ""      
+
+    if "selected_row_app_id" not in st.session_state:
+        st.session_state["selected_row_app_id"] = None             
 
     filter_header_col, clear_filter_col = st.columns(
         [0.90, 0.10],
@@ -1196,6 +1199,7 @@ else:
             st.session_state["email_filter"] = ""
             st.session_state["full_name_filter"] = ""
             st.session_state.pop("email_duplicate_active", None)
+            st.session_state["selected_row_app_id"] = None   # Снимает галочку с выделенной в предыдущем действии строки           
             st.session_state["editor_version"] = (
                 st.session_state.get("editor_version", 0) + 1
             )
@@ -1343,12 +1347,14 @@ else:
 
             display_data = []
 
+            # FIX: single-select — галочка только у сохранённой строки
+            _selected_id = st.session_state.get("selected_row_app_id")
 
             for application in applications:
                   
                 display_data.append({
-                    "_app_id": application["id"],  # <-- ДОБАВИТЬ СКРЫТЫЙ ID
-                    t["select"]: False,
+                    "_app_id": application["id"],
+                    t["select"]: (application["id"] == _selected_id),  # <-- было: False
                     t["position"]: application["position_name"],
                     t["education"]: application["educ"],
                     t["experience"]: application["experience"],
@@ -1534,6 +1540,39 @@ else:
             if st.session_state.pop("email_updated_message", False):
                 st.success(t["email_updated"])
 
+            # -------------------------------------------------
+            # FIX: single-select.
+            # Клик по новой строке автоматически снимает галочку
+            # с предыдущей. Никогда не бывает двух отмеченных.
+            # -------------------------------------------------
+            _checked_ids = [
+                row["_app_id"]
+                for row in edited_data
+                if row.get(t["select"]) and row.get("_app_id") is not None
+            ]
+            _stored_id = st.session_state.get("selected_row_app_id")
+
+            if len(_checked_ids) == 0:
+                _new_id = None
+            elif len(_checked_ids) == 1:
+                _new_id = _checked_ids[0]
+            else:
+                # Пользователь кликнул новую строку, старая осталась отмеченной.
+                # Оставляем ту, что НЕ совпадает с сохранённой.
+                _new_id = next(
+                    (i for i in _checked_ids if i != _stored_id),
+                    _checked_ids[0]
+                )
+
+            if _new_id != _stored_id:
+                st.session_state["selected_row_app_id"] = _new_id
+                # Меняем ключ виджета, чтобы Streamlit перерисовал таблицу
+                # с правильными галочками (без нашего сброса он сохранит
+                # старую отмеченную строку визуально).
+                st.session_state["editor_version"] = (
+                    st.session_state.get("editor_version", 0) + 1
+                )
+                st.rerun()
                   
 
             # Look here
