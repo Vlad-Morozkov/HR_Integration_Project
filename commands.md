@@ -23,3 +23,7 @@ pip install streamlit fastapi uvicorn sqlalchemy pandas requests streamlit-calen
 
 # установит всё чот используется в проекте
 -PIP INSTALL -R REQUIREMENTS.TXT-pip install -r requirements.txt
+
+# Проверка автотестами
+
+pytest test_validators.py -v
