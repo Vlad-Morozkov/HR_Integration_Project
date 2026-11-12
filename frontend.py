@@ -1950,9 +1950,10 @@ else:
                     "snapDuration": "00:30:00",
                     # Первый день недели: 1 для РФ (Пн), 0 для США (Вс)
                     "firstDay": 1 if cal_locale == "ru" else 0, 
-                    "validRange": {
-                        "start": date.today().isoformat()
-                    },
+                    # Когда закоменчено можно листать в прошлое
+                    # "validRange": {                           
+                    #     "start": date.today().isoformat()
+                    # },
                     "headerToolbar": {
                         "left": "prev,next today",
                         "center": "title",
