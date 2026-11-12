@@ -682,6 +682,9 @@ if mode == t["candidate"]:
 
     st.header(t["candidate"])
 
+    st.sidebar.write("Timezone:", st.session_state.get("user_tz_name"))
+    st.sidebar.write("Offset:", st.session_state.get("user_tz_offset"))
+
     form_version = st.session_state["candidate_form_version"]
 
     # -----------------------------------------------------
@@ -1898,23 +1901,34 @@ else:
                 else f"▼ {t.get('expand_calendar', 'Expand calendar')}"
             )
 
-            col_calendar, col_cancel = st.columns(2)
+            # Если календарь развернут — показываем две колонки (Развернуть/Свернуть + Отменить)
+            if st.session_state.get("calendar_expanded", False):
 
-            with col_calendar:
+                col_calendar, col_cancel = st.columns(2)
+
+                with col_calendar:
+                    st.button(
+                        toggle_label,
+                        key="calendar_toggle_button",
+                        on_click=_toggle_cal
+                    )
+
+                with col_cancel:
+                    cancel_booking_clicked = st.button(
+                        t.get("cancel_booking", "Cancel Booking"),
+                        key="cancel_booking_button",
+                        disabled=not bool(
+                            st.session_state.get("selected_booking_uid")
+                        )
+                    )
+            # Если календарь свернут — показываем только кнопку развернуть
+            else:
                 st.button(
                     toggle_label,
                     key="calendar_toggle_button",
                     on_click=_toggle_cal
                 )
-
-            with col_cancel:
-                cancel_booking_clicked = st.button(
-                    t.get("cancel_booking", "Cancel Booking"),
-                    key="cancel_booking_button",
-                    disabled=not bool(
-                        st.session_state.get("selected_booking_uid")
-                    )
-                )
+                cancel_booking_clicked = False  # Важно! Чтобы код ниже не упал с ошибкой
 
             # ГАРД (оставляем)
             if not st.session_state.get("calendar_expanded", False):
