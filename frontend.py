@@ -2854,38 +2854,55 @@ else:
     # Add position
     # -----------------------------------------------------
 
-    new_position = st.text_input(
-        t["new_position"]
+    # 1. Функция-колбэк. Срабатывает ДО перерисовки страницы,
+    # поэтому может безопасно менять значение текстового поля.
+    def _add_position_callback():
+        pos_name = st.session_state.get("new_position_input", "").strip()
+
+        if not pos_name:
+            st.session_state["position_error_message"] = t["position_empty"]
+            return
+
+        try:
+            response = requests.post(
+                f"{API_URL}/api/positions",
+                json={
+                    "pos_name": pos_name,
+                    "is_free": True
+                },
+                timeout=5
+            )
+
+            if response.status_code == 201:
+                st.session_state["position_added_message"] = True
+                st.session_state["new_position_input"] = ""   # Очищаем поле
+            else:
+                st.session_state["position_error_message"] = (
+                    f'{t["position_add_error"]} '
+                    f'Error code: {response.status_code}.'
+                )
+        except requests.RequestException:
+            st.session_state["position_error_message"] = t["request_failed"]
+
+    # 2. Текстовое поле с фиксированным ключом
+    st.text_input(
+        t["new_position"],
+        key="new_position_input"
     )
 
-    if st.button(t["add_position"]):
-        if not new_position.strip():
-            st.warning(t["position_empty"])
-        else:
-            try:
-                response = requests.post(
-                    f"{API_URL}/api/positions",
-                    json={
-                        "pos_name": new_position.strip(),
-                        "is_free": True
-                    },
-                    timeout=5
-                )
+    # 3. Кнопка вызывает колбэк
+    st.button(t["add_position"], on_click=_add_position_callback)
 
-                if response.status_code == 201:
-                    st.session_state["position_added_message"] = True
-                    st.rerun()
-                else:
-                    st.error(
-                        f'{t["position_add_error"]} '
-                        f'Error code: {response.status_code}.'
-                    )
-
-            except requests.RequestException:
-                st.error(t["request_failed"])
+    # 4. Вывод сообщений (после кнопки)
+    if "position_error_message" in st.session_state:
+        st.error(st.session_state.pop("position_error_message"))
 
     if st.session_state.pop("position_added_message", False):
         st.success(t["position_added"])
+
+    # -----------------------------------------------------
+    # Reset demo
+    # -----------------------------------------------------
 
     if st.button(t["reset_demo"]):
         
