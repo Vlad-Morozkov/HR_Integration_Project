@@ -257,7 +257,7 @@ TEXTS = {
         "reschedule_booking":       "Reschedule",
         "cancel_booking":           "Cancel Booking",
         "booking_url_missing":      "URL not provided by backend",
-        "cancel_booking_for_hired": "Cancel booking for Hired candidate",
+        "cancel_booking_for_reason": "Cancel booking for candidate",
         "dismiss":                  "Dismiss",
         "has_booking_at":           "has a booking at",
         "cancellation_ask":         "Do you need to cancel it?",     
@@ -320,7 +320,7 @@ TEXTS = {
         "position_occupied_warning":    
                     "Position is already occupied. You can hire the candidate, but you need to check the number of slots.",
         "hire_anyway":  "Hire candidate anyway",
-        "cancel":       "Cancel",          
+        "cancel":       "Cancel",     
 
         # Headers
 
@@ -337,6 +337,8 @@ TEXTS = {
         "email_copied":          "Email copied!",
         "email_updated":         "Email updated successfully.",
         "email_update_error":    "Could not update email.",
+        "same_email_hire_prompt": 
+            "⚠️ A candidate with this email {email} is already hired for «{hired_position}». Do you want to hire them again for «{current_position}»?",
 
         # Buttons
 
@@ -426,11 +428,11 @@ TEXTS = {
         "reschedule_booking":       "Изменить встречу",
         "cancel_booking":           "Отменить",
         "booking_url_missing":      "backend не предоставил URL",
-        "cancel_booking_for_hired": "Отменить запись для нанятого кандидата",
+        "cancel_booking_for_reason": "Отменить записи для кандидата",
         "dismiss":                  "Закрыть",
         "has_booking_at":           "имеет запись на",
         "cancellation_ask":         "Хотите отменить?",
-        "bookings_cancelled_successfully":  "Все записи для нанятого кандидата отменены.",         
+        "bookings_cancelled_successfully":  "Все записи для кандидата отменены.",         
 
         #----------
         # Notiffications
@@ -507,6 +509,8 @@ TEXTS = {
         "email_copied":          "Email скопирован!",
         "email_updated":         "Email успешно обновлён.",
         "email_update_error":    "Не удалось обновить email.",
+        "same_email_hire_prompt": 
+            "⚠️ Кандидат с этим email {email} уже принят на должность «{hired_position}». Хотите ли принять его повторно на должность «{current_position}»?",
         
         # Кнопки
         
@@ -1141,6 +1145,42 @@ if mode == t["candidate"]:
 else:
 
     # -----------------------------------------------------
+    # HELPER: собрать будущие брони кандидата для промпта отмены
+    # -----------------------------------------------------
+
+    def _collect_candidate_bookings(application_id: int) -> list:
+        """
+        Возвращает список будущих броней кандидата.
+        Не падает, если сервер недоступен — возвращает [].
+        """
+        try:
+            resp = requests.get(
+                f"{API_URL}/api/interviews/booked-slots",
+                timeout=5,
+            )
+            resp.raise_for_status()
+            slots = resp.json()
+        except requests.RequestException:
+            return []
+        return [
+            s for s in slots
+            if s.get("application_id") == application_id
+        ]
+
+    def _schedule_bookings_cancel_prompt(application_id: int, candidate_name: str) -> None:
+        """
+        Если у кандидата есть будущие брони — сохраняет их в session_state,
+        чтобы промпт отрисовался на следующем рендере.
+        Ничего не делает, если броней нет.
+        """
+        bookings = _collect_candidate_bookings(application_id)
+        if bookings:
+            st.session_state["bookings_to_cancel"] = {
+                "name": candidate_name,
+                "bookings": bookings,
+            }
+
+    # -----------------------------------------------------
     # HR Header and Refresh
     # -----------------------------------------------------
 
@@ -1338,8 +1378,6 @@ else:
 
 
         else:
-
-           
 
             # ---------------------------------------------
             # Prepare table data
@@ -1609,6 +1647,8 @@ else:
             email_is_valid = False
             can_process = False
             email_duplicate_for_selected = False
+            same_email_hired_app = None    # <-- NEW
+            same_email_hired = False       # <-- NEW            
 
             # =========================================
             # Selection state
@@ -1629,6 +1669,10 @@ else:
                     st.session_state["last_selected_app_for_hire"] = selected_application_id
                     st.session_state["show_hire_warning"] = False
                     st.session_state.pop("pending_hire_app_id", None)
+                    # NEW: при смене кандидата сбрасываем и same-email warning
+                    st.session_state["show_same_email_hire_warning"] = False
+                    st.session_state.pop("pending_same_email_app_id", None)
+                    st.session_state.pop("pending_same_email_info", None)
                 # ---------------------------
 
                 # New selection → clear old slot, AUTO-EXPAND calendar
@@ -1665,6 +1709,25 @@ else:
                         for other in all_applications
                     )
 
+                # NEW: тот же email, но Hired на ДРУГОЙ должности
+                # (не блокирует кнопки — покажет подтверждение при клике на «Принять»).
+                same_email_hired_app = None
+                if edited_email:
+                    _edited_norm = str(edited_email).strip().casefold()
+                    same_email_hired_app = next(
+                        (
+                            app for app in all_applications
+                            if app["id"] != selected_application_id
+                            and app["status"] == "Hired"
+                            and str(app["email"]).strip().casefold() == _edited_norm
+                        ),
+                        None
+                    )
+                same_email_hired = (
+                    selected_application["status"] == "New"
+                    and same_email_hired_app is not None
+                )
+
                 # Needed for Interview button — enabled only if a slot is picked
                 slot_selected = bool(
                     st.session_state.get("booking_start")
@@ -1697,20 +1760,6 @@ else:
                         )
                     )
 
-                    same_email_hired = (
-                        selected_application["status"] == "New"
-                        and any(
-                            application["id"] != selected_application_id
-                            and application["status"] == "Hired"
-                            and str(application["email"]).strip().casefold()
-                            == str(edited_email).strip().casefold()
-                            for application in all_applications
-                        )
-                    )
-
-                    if same_email_hired:
-                        st.warning(t["candidate_already_hired"])
-
                 with col3:
                     reject_clicked = st.button(
                         t["reject"],
@@ -1720,6 +1769,193 @@ else:
                             or email_duplicate_for_selected
                         )
                     )
+
+                # FIX 3: Предупреждение о занятой позиции — ПРЯМО ПОД КНОПКАМИ,
+                # выше календаря. НЕ сбрасываем show_hire_warning внутри блока —
+                # только по явному выбору пользователя. Так предупреждение
+                # остаётся при любых перерисовках (свернуть календарь, сменить
+                # фильтр и т.п.).
+                if (
+                    st.session_state.get("show_hire_warning")
+                    and st.session_state.get("pending_hire_app_id") == selected_application_id
+                ):
+                    st.warning(t.get(
+                        "position_occupied_warning",
+                        "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."
+                    ))
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button(
+                            t.get("hire_anyway", "Принять кандидата всё равно"),
+                            type="primary"
+                        ):
+                            st.session_state["force_hire_clicked"] = True
+                            st.session_state["show_hire_warning"] = False
+                            st.session_state.pop("pending_hire_app_id", None)
+                            st.rerun()
+                    with col_no:
+                        if st.button(t.get("cancel", "Отмена")):
+                            st.session_state["show_hire_warning"] = False
+                            st.session_state.pop("pending_hire_app_id", None)
+                            st.rerun()
+
+                # NEW: промпт «уже принят на другую должность»
+                if (
+                    st.session_state.get("show_same_email_hire_warning")
+                    and st.session_state.get("pending_same_email_app_id") == selected_application_id
+                ):
+                    _info = st.session_state.get("pending_same_email_info", {})
+                    
+                    # 1. Готовим шаблон для HTML-функции: подставляем должности,
+                    # но оставляем {email}, чтобы функция сама заменила его на кликабельный
+                    _template = t.get(
+                        "same_email_hire_prompt",
+                        "A candidate with this email {email} is already hired for «{hired_position}». Do you want to hire them again for «{current_position}»?"
+                    )
+                    _formatted_template = _template.replace(
+                        "{hired_position}", _info.get("hired_position", "")
+                    ).replace(
+                        "{current_position}", _info.get("current_position", "")
+                    )
+
+                    # 2. Отрисовываем красивый HTML-блок (как на скриншоте 2)
+                    show_duplicate_email_notice(
+                        message_template=_formatted_template,
+                        email=_info.get("email", ""),
+                        cancel_hint="", # В этой функции не используется, но требуется по сигнатуре
+                        copied_message=t.get("email_copied", "Скопировано!"),
+                        copy_hint=t.get("click_email_to_copy", "Нажмите на email, чтобы скопировать")
+                    )
+
+                    # 3. Кнопки под блоком
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button(
+                            t.get("hire_anyway", "Принять кандидата всё равно"),
+                            type="primary",
+                            key="same_email_hire_anyway",
+                        ):
+                            st.session_state["force_hire_clicked"] = True
+                            st.session_state["show_same_email_hire_warning"] = False
+                            st.session_state.pop("pending_same_email_app_id", None)
+                            st.session_state.pop("pending_same_email_info", None)
+                            st.rerun()
+                    with col_no:
+                        if st.button(
+                            t.get("cancel", "Отмена"),
+                            key="same_email_hire_cancel",
+                        ):
+                            st.session_state["show_same_email_hire_warning"] = False
+                            st.session_state.pop("pending_same_email_app_id", None)
+                            st.session_state.pop("pending_same_email_info", None)
+                            st.rerun()
+
+            # FIX 1: Сообщения об успехе — ПРЯМО ПОД КНОПКАМИ (до календаря).
+            # Сообщение о найме (application_hired_message) раньше вообще
+            # не выводилось. Сообщение об отклонении выводилось в самом
+            # конце файла — под календарём, где его не видно.
+            if st.session_state.pop("application_hired_message", False):
+                st.success(t.get(
+                    "application_hired",
+                    t.get("status_hired", "Кандидат принят")
+                ))
+            if st.session_state.pop("application_rejected_message", False):
+                st.success(t["application_rejected"])
+
+            # =========================================
+            # Промпт «Отменить брони кандидата»
+            # =========================================
+            # FIX: перенесено сюда из конца try:, чтобы пользователь видел
+            # его сразу под кнопками, а не под календарём.
+            # Срабатывает после найма ИЛИ отклонения, если у кандидата
+            # были будущие брони.
+            if "bookings_to_cancel" in st.session_state:
+                prompt_info = st.session_state["bookings_to_cancel"]
+                candidate_name = prompt_info["name"]
+                bookings_list = prompt_info["bookings"]
+
+                tz_offset = st.session_state.get("user_tz_offset", 0.0)
+
+                # 1. Собираем все интервалы в локальном времени и сортируем их
+                intervals = []
+                for b in bookings_list:
+                    try:
+                        s = datetime.fromisoformat(
+                            b["start"].replace("Z", "+00:00")
+                        ).replace(tzinfo=None) + timedelta(hours=tz_offset)
+                        e = datetime.fromisoformat(
+                            b["end"].replace("Z", "+00:00")
+                        ).replace(tzinfo=None) + timedelta(hours=tz_offset)
+                        intervals.append([s, e])
+                    except Exception:
+                        pass
+
+                intervals.sort(key=lambda x: x[0])
+
+                # 2. Объединяем последовательные слоты (только в один день)
+                merged_intervals = []
+                for current in intervals:
+                    if not merged_intervals:
+                        merged_intervals.append(current)
+                    else:
+                        last = merged_intervals[-1]
+                        is_same_day = current[0].date() == last[1].date()
+                        is_consecutive = current[0] <= last[1]
+                        if is_same_day and is_consecutive:
+                            last[1] = max(last[1], current[1])
+                        else:
+                            merged_intervals.append(current)
+
+                # 3. Форматируем объединенные интервалы в красивую строку
+                formatted_times = []
+                for s, e in merged_intervals:
+                    if s.date() == e.date():
+                        formatted_times.append(
+                            f"{s.strftime('%H:%M')} → {e.strftime('%H:%M %d.%m.%Y')}"
+                        )
+                    else:
+                        formatted_times.append(
+                            f"{s.strftime('%H:%M %d.%m.%Y')} → {e.strftime('%H:%M %d.%m.%Y')}"
+                        )
+
+                time_str = ", ".join(formatted_times)
+
+                # Само уведомление
+                st.warning(
+                    f"⚠️ **{candidate_name}** {t['has_booking_at']} "
+                    f"**{time_str}**. {t['cancellation_ask']}"
+                )
+
+                # Функции-коллбеки для кнопок
+                def _cancel_all_bookings():
+                    for b in bookings_list:
+                        requests.post(
+                            f"{API_URL}/api/interviews/{b['booking_uid']}/cancel",
+                            timeout=10
+                        )
+                    del st.session_state["bookings_to_cancel"]
+                    st.session_state["calendar_version"] += 1
+                    st.session_state["hired_cancelled_msg"] = True
+
+                def _dismiss_booking_prompt():
+                    del st.session_state["bookings_to_cancel"]
+
+                col_btn, col_empty = st.columns([1, 1])
+                with col_btn:
+                    st.button(
+                        t.get("cancel_booking_for_reason", "Cancel booking for candidate"),
+                        type="primary",
+                        on_click=_cancel_all_bookings
+                    )
+                with col_empty:
+                    st.button(
+                        t.get("dismiss", "Dismiss"),
+                        on_click=_dismiss_booking_prompt
+                    )
+
+            # Показываем сообщение об успешной отмене
+            if st.session_state.pop("hired_cancelled_msg", False):
+                st.success(t["bookings_cancelled_successfully"])
 
             # =========================================
             # Calendar toggle + guard
@@ -2279,6 +2515,12 @@ else:
                 )
                 if response.status_code == 200:
                     st.session_state["application_rejected_message"] = True
+                    # NEW: та же логика, что и при найме — предложить
+                    # отменить будущие брони кандидата.
+                    _schedule_bookings_cancel_prompt(
+                        selected_application_id,
+                        selected_application["full_name"],
+                    )
                     st.rerun()
                 else:
                     st.error(
@@ -2291,7 +2533,7 @@ else:
                 force_hire = st.session_state.pop("force_hire_clicked", False)
                 
                 if not force_hire:
-                    # Проверяем статус позиции
+                    # Проверка 1: позиция занята?
                     is_free = True
                     try:
                         pos_resp = requests.get(f"{API_URL}/api/positions", timeout=5)
@@ -2304,11 +2546,20 @@ else:
                         pass
 
                     if not is_free:
-                        # Позиция занята! Включаем флаг предупреждения
                         st.session_state["pending_hire_app_id"] = selected_application_id
                         st.session_state["show_hire_warning"] = True
                         st.rerun()
-                        st.stop() # Останавливаем выполнение, чтобы не нанять сразу
+
+                    # Проверка 2 (NEW): тот же email уже нанят на другую должность?
+                    if same_email_hired_app is not None:
+                        st.session_state["pending_same_email_app_id"] = selected_application_id
+                        st.session_state["pending_same_email_info"] = {
+                            "email": same_email_hired_app["email"],
+                            "hired_position": same_email_hired_app["position_name"],
+                            "current_position": selected_application["position_name"],
+                        }
+                        st.session_state["show_same_email_hire_warning"] = True
+                        st.rerun()
                         
                 # Сам процесс найма (сработает и для обычной кнопки, и для "Всё равно")
                 response = requests.patch(
@@ -2316,125 +2567,151 @@ else:
                     json={"status": "Hired", "email": edited_email, "support_email": support_email},
                     timeout=10
                 )
+
                 if response.status_code == 200:
                     st.session_state["application_hired_message"] = True
-                    
-                    candidate_bookings = [s for s in booked_slots if s.get("application_id") == selected_application_id]
-                    if candidate_bookings:
-                        st.session_state["hired_bookings_to_cancel"] = {
-                            "name": selected_application["full_name"],
-                            "bookings": candidate_bookings
-                        }
+                    _schedule_bookings_cancel_prompt(
+                        selected_application_id,
+                        selected_application["full_name"],
+                    )
                     st.rerun()
                 else:
                     st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
 
-            # =======================================================
-            # 2. Предупреждение, если позиция занята
-            # =======================================================
-            if st.session_state.get("show_hire_warning") and st.session_state.get("pending_hire_app_id") == selected_application_id:
-                st.session_state["show_hire_warning"] = False 
-                
-                st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
-                
-                col_yes, col_no = st.columns(2)
-                with col_yes:
-                    if st.button(t.get("hire_anyway", "Принять кандидата всё равно"), type="primary"):
-                        # Просто ставим флаг и перезагружаем страницу. API вызов сделает блок Hire выше.
-                        st.session_state["force_hire_clicked"] = True
-                        st.session_state.pop("pending_hire_app_id", None)
-                        st.rerun()
+                # if response.status_code == 200:
+                #     st.session_state["application_hired_message"] = True
 
-                with col_no:
-                    if st.button(t.get("cancel", "Отмена")):
-                        st.session_state.pop("pending_hire_app_id", None)
-                        st.rerun()
+                #     # FIX: booked_slots определён только при раскрытом календаре.
+                #     # Этот блок — отдельная фича «убрать будущие собеседования
+                #     # нанятого кандидата». Запрашиваем данные локально, чтобы
+                #     # работать независимо от состояния календаря.
+                #     try:
+                #         _hire_slots_resp = requests.get(
+                #             f"{API_URL}/api/interviews/booked-slots",
+                #             timeout=5,
+                #         )
+                #         _hire_slots_resp.raise_for_status()
+                #         _hire_slots = _hire_slots_resp.json()
+                #     except requests.RequestException:
+                #         _hire_slots = []
 
-        # Display the Cancel Booking prompt for the hired candidate
-        if "hired_bookings_to_cancel" in st.session_state:
-            prompt_info = st.session_state["hired_bookings_to_cancel"]
-            candidate_name = prompt_info["name"]
-            bookings_list = prompt_info["bookings"]
+                #     candidate_bookings = [
+                #         s for s in _hire_slots
+                #         if s.get("application_id") == selected_application_id
+                #     ]
+                #     if candidate_bookings:
+                #         st.session_state["bookings_to_cancel"] = {
+                #             "name": selected_application["full_name"],
+                #             "bookings": candidate_bookings
+                #         }
+                #     st.rerun()
+                # else:
+                #     st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
+
+
+            # Блок переехал под таблицу
+            # # =======================================================
+            # # 2. Предупреждение, если позиция занята
+            # # =======================================================
+            # if st.session_state.get("show_hire_warning") and st.session_state.get("pending_hire_app_id") == selected_application_id:
+            #     st.session_state["show_hire_warning"] = False 
+                
+            #     st.warning(t.get("position_occupied_warning", "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."))
+                
+            #     col_yes, col_no = st.columns(2)
+            #     with col_yes:
+            #         if st.button(t.get("hire_anyway", "Принять кандидата всё равно"), type="primary"):
+            #             # Просто ставим флаг и перезагружаем страницу. API вызов сделает блок Hire выше.
+            #             st.session_state["force_hire_clicked"] = True
+            #             st.session_state.pop("pending_hire_app_id", None)
+            #             st.rerun()
+
+            #     with col_no:
+            #         if st.button(t.get("cancel", "Отмена")):
+            #             st.session_state.pop("pending_hire_app_id", None)
+            #             st.rerun()
+
+        # # Display the Cancel Booking prompt for the hired candidate
+        # if "bookings_to_cancel" in st.session_state:
+        #     prompt_info = st.session_state["bookings_to_cancel"]
+        #     candidate_name = prompt_info["name"]
+        #     bookings_list = prompt_info["bookings"]
             
-            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+        #     tz_offset = st.session_state.get("user_tz_offset", 0.0)
             
-            # 1. Собираем все интервалы в локальном времени и сортируем их
-            intervals = []
-            for b in bookings_list:
-                try:
-                    s = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
-                    e = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
-                    intervals.append([s, e])
-                except Exception:
-                    pass
+        #     # 1. Собираем все интервалы в локальном времени и сортируем их
+        #     intervals = []
+        #     for b in bookings_list:
+        #         try:
+        #             s = datetime.fromisoformat(b["start"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
+        #             e = datetime.fromisoformat(b["end"].replace("Z", "+00:00")).replace(tzinfo=None) + timedelta(hours=tz_offset)
+        #             intervals.append([s, e])
+        #         except Exception:
+        #             pass
             
-            intervals.sort(key=lambda x: x[0])
+        #     intervals.sort(key=lambda x: x[0])
             
-            # 2. Объединяем последовательные слоты (только в один день)
-            merged_intervals = []
-            for current in intervals:
-                if not merged_intervals:
-                    merged_intervals.append(current)
-                else:
-                    last = merged_intervals[-1]
+        #     # 2. Объединяем последовательные слоты (только в один день)
+        #     merged_intervals = []
+        #     for current in intervals:
+        #         if not merged_intervals:
+        #             merged_intervals.append(current)
+        #         else:
+        #             last = merged_intervals[-1]
                     
-                    # Проверяем, что день один и тот же И время идет подряд (или пересекается)
-                    is_same_day = current[0].date() == last[1].date()
-                    is_consecutive = current[0] <= last[1]
+        #             # Проверяем, что день один и тот же И время идет подряд (или пересекается)
+        #             is_same_day = current[0].date() == last[1].date()
+        #             is_consecutive = current[0] <= last[1]
                     
-                    if is_same_day and is_consecutive:
-                        # Расширяем конец предыдущего слота
-                        last[1] = max(last[1], current[1]) 
-                    else:
-                        merged_intervals.append(current)
+        #             if is_same_day and is_consecutive:
+        #                 # Расширяем конец предыдущего слота
+        #                 last[1] = max(last[1], current[1]) 
+        #             else:
+        #                 merged_intervals.append(current)
                         
-            # 3. Форматируем объединенные интервалы в красивую строку
-            formatted_times = []
-            for s, e in merged_intervals:
-                if s.date() == e.date():
-                    formatted_times.append(f"{s.strftime('%H:%M')} → {e.strftime('%H:%M %d.%m.%Y')}")
-                else:
-                    formatted_times.append(f"{s.strftime('%H:%M %d.%m.%Y')} → {e.strftime('%H:%M %d.%m.%Y')}")
+        #     # 3. Форматируем объединенные интервалы в красивую строку
+        #     formatted_times = []
+        #     for s, e in merged_intervals:
+        #         if s.date() == e.date():
+        #             formatted_times.append(f"{s.strftime('%H:%M')} → {e.strftime('%H:%M %d.%m.%Y')}")
+        #         else:
+        #             formatted_times.append(f"{s.strftime('%H:%M %d.%m.%Y')} → {e.strftime('%H:%M %d.%m.%Y')}")
             
-            time_str = ", ".join(formatted_times)
+        #     time_str = ", ".join(formatted_times)
 
-            # Само уведомление
-            st.warning(f"⚠️ **{candidate_name}** {t['has_booking_at']} **{time_str}**. {t['cancellation_ask']}")
+        #     # Само уведомление
+        #     st.warning(f"⚠️ **{candidate_name}** {t['has_booking_at']} **{time_str}**. {t['cancellation_ask']}")
             
-            # Функции-коллбеки для кнопок (срабатывают ДО перерисовки страницы)
-            def _cancel_all_bookings():
-                for b in bookings_list:
-                    requests.post(f"{API_URL}/api/interviews/{b['booking_uid']}/cancel", timeout=10)
+        #     # Функции-коллбеки для кнопок (срабатывают ДО перерисовки страницы)
+        #     def _cancel_all_bookings():
+        #         for b in bookings_list:
+        #             requests.post(f"{API_URL}/api/interviews/{b['booking_uid']}/cancel", timeout=10)
                 
-                del st.session_state["hired_bookings_to_cancel"]
-                st.session_state["calendar_version"] += 1
-                st.session_state["hired_cancelled_msg"] = True
+        #         del st.session_state["bookings_to_cancel"]
+        #         st.session_state["calendar_version"] += 1
+        #         st.session_state["hired_cancelled_msg"] = True
 
-            def _dismiss_booking_prompt():
-                del st.session_state["hired_bookings_to_cancel"]
+        #     def _dismiss_booking_prompt():
+        #         del st.session_state["bookings_to_cancel"]
 
-            # Кнопки с использованием on_click
-            col_btn, col_empty = st.columns([1, 1])
-            with col_btn:
-                st.button(
-                    t.get("cancel_booking_for_hired", "Cancel booking for Hired candidate"), 
-                    type="primary",
-                    on_click=_cancel_all_bookings
-                )
+        #     # Кнопки с использованием on_click
+        #     col_btn, col_empty = st.columns([1, 1])
+        #     with col_btn:
+        #         st.button(
+        #             t.get("cancel_booking_for_reason", "Cancel booking for candidate"), 
+        #             type="primary",
+        #             on_click=_cancel_all_bookings
+        #         )
                         
-            with col_empty:
-                st.button(
-                    t.get("dismiss", "Dismiss"),
-                    on_click=_dismiss_booking_prompt
-                )
+        #     with col_empty:
+        #         st.button(
+        #             t.get("dismiss", "Dismiss"),
+        #             on_click=_dismiss_booking_prompt
+        #         )
 
-        # Показываем сообщение об успешной отмене, если оно есть
-        if st.session_state.pop("hired_cancelled_msg", False):
-            st.success(t["bookings_cancelled_successfully"])
-
-        # Display Reject notification after rerun
-        if st.session_state.pop("application_rejected_message", False):
-            st.success(t["application_rejected"])
+        # # Показываем сообщение об успешной отмене, если оно есть
+        # if st.session_state.pop("hired_cancelled_msg", False):
+        #     st.success(t["bookings_cancelled_successfully"])
 
     except requests.RequestException as e:
 

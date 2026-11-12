@@ -972,10 +972,7 @@ def update_application_status(
             status_code=500,
             detail="Internal server error during status update."
         )
-#
 
-
-# aded
 class EmailUpdateRequest(BaseModel):
     email: str
 
