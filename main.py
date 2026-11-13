@@ -263,8 +263,8 @@ APPLICATION_DEMO_COLLECTION = {
                     "position_id":  "Senior Backend Developer",
                     "educ":         "BSc Computer Science",
                     "experience":   "5 years",
-                    "full_name":    "Alice Smith",
-                    "email":        "aspanseric+alice@gmail.com",
+                    "full_name":    "Lana Tyler",
+                    "email":        "aspanseric+lana@gmail.com",
                     "birth_date":   date(1990, 5, 15),
                     "status":       "New"
                 },
@@ -322,8 +322,8 @@ APPLICATION_DEMO_COLLECTION = {
                     "position_id": "Senior Backend Developer",
                     "educ":        "Высшее. Бакалавр",
                     "experience":  "3 года",
-                    "full_name":   "Синицын Пётр Игоревич",
-                    "email":       "aspanseric+SPI94@gmail.com",
+                    "full_name":   "Лисицын Игорь Петрович",
+                    "email":       "aspanseric+LIP94@gmail.com",
                     "birth_date":  date(1994, 6, 2),
                     "status":      "New"
                 },

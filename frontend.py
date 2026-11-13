@@ -306,6 +306,7 @@ TEXTS = {
         "connection_error":      "Could not connect to the HR system.",
         "duplicate_application": "You have already applied for this position.",
         "invalid_email":         "Please enter a valid email address.",
+        "invalid_email_for_candidate": "For {name} ({position}) {error_text}",        
 
         #----------
         # HR Mode
@@ -370,6 +371,7 @@ TEXTS = {
         "email_update_error":    "Could not update email.",
         "same_email_hire_prompt": 
             "⚠️ A candidate with this email {email} is already hired for «{hired_position}». Do you want to hire them again for «{current_position}»?",
+        "click_value_to_copy":   "Click value to copy",
 
         # Buttons
 
@@ -400,7 +402,7 @@ TEXTS = {
         "select_slot_first":     "Please select a free time slot on the calendar.",
         "slot_already_booked":   "That slot is already booked.",
         "slot_unavailable":      "Selected unavailable time (set at Cal.com)",
-        "interview_ready":       "Invitation data prepared for booking",
+        "interview_ready":       "Booked",
         "slot_in_past":          "You select a slot in the past.",
         "selected_slot":         "Selected slot",
         "application_hired":     "Application hired.",
@@ -424,6 +426,7 @@ TEXTS = {
         "status_new":            "New",
         "status_hired":          "Hired",
         "status_canceled":       "Canceled",
+        "status_all":            "All",            
     },
 
     "ru": {
@@ -478,6 +481,7 @@ TEXTS = {
         "connection_error":      "Не удалось подключиться к системе найма.",
         "duplicate_application": "Вы уже подавали заявку на эту должность.",
         "invalid_email":         "Пожалуйста, введите корректный адрес электронной почты.",
+        "invalid_email_for_candidate": "Для {name} ({position}) {error_text}",
 
         #----------
         # HR Mode
@@ -542,7 +546,8 @@ TEXTS = {
         "email_update_error":    "Не удалось обновить email.",
         "same_email_hire_prompt": 
             "⚠️ Кандидат с этим email {email} уже принят на должность «{hired_position}». Хотите ли принять его повторно на должность «{current_position}»?",
-        
+        "click_value_to_copy":   "Click value to copy",
+
         # Кнопки
         
         "review":                "Рассмотреть",
@@ -570,7 +575,7 @@ TEXTS = {
         "selected_booking":     "Выбранная запись",
         # Сообщения 
         
-        "interview_ready":       "Данные подготовлены для бронирования слота.",
+        "interview_ready":       "Собеседование запланировано в календаре.",
         "slot_in_past":          "Вы выбрали прошедше время",
         "selected_slot":         "Выбрано время",        
         "select_slot_first":     "Выберите свободный слот в календаре",
@@ -594,7 +599,8 @@ TEXTS = {
 
         "status_new":            "Новая",
         "status_hired":          "Принят",
-        "status_canceled":       "Отклонена"
+        "status_canceled":       "Отклонена",
+        "status_all":            "Все",        
     }
 
 }
@@ -681,9 +687,6 @@ if "candidate_form_version" not in st.session_state:
 if mode == t["candidate"]:
 
     st.header(t["candidate"])
-
-    st.sidebar.write("Timezone:", st.session_state.get("user_tz_name"))
-    st.sidebar.write("Offset:", st.session_state.get("user_tz_offset"))
 
     form_version = st.session_state["candidate_form_version"]
 
@@ -791,11 +794,15 @@ if mode == t["candidate"]:
 
         else:
 
-            available_positions = [
-                position
-                for position in positions
-                if position["is_free"]
-            ]
+            # Берем только свободные позиции и сортируем по названию (pos_name)
+            available_positions = sorted(
+                [
+                    position
+                    for position in positions
+                    if position["is_free"]
+                ],
+                key=lambda p: p["pos_name"].lower()  # .lower() чтобы регистр не влиял (А и а)
+            )
 
             if not available_positions:
 
@@ -937,25 +944,23 @@ if mode == t["candidate"]:
                         "store_experience": t["experience"],
                     }
                     
-                    empty_field = None
+                    validation_error = None
 
                     for field_key, field_name in required_fields.items():
+                        field_value = st.session_state[field_key].strip()
 
-                        if not st.session_state[field_key].strip():
-                            empty_field = field_name
+                        # 1. Проверка на пустоту
+                        if not field_value:
+                            validation_error = t["fill_field"].format(field_name=field_name)
                             break
 
-                    if empty_field:
+                        # 2. Проверка email сразу после того, как убедились, что он не пустой
+                        if field_key == "store_email" and not is_valid_email(field_value):
+                            validation_error = t["invalid_email"]
+                            break
 
-                        st.error(
-                            t["fill_field"].format(
-                                field_name=empty_field
-                            )
-                        )
-
-                    elif not is_valid_email(st.session_state["store_email"]):
-
-                        st.error(t["invalid_email"])
+                    if validation_error:
+                        st.error(validation_error)
 
                     else:
 
@@ -1227,7 +1232,10 @@ else:
         st.session_state["email_filter"] = "" 
         
     if "full_name_filter" not in st.session_state:
-        st.session_state["full_name_filter"] = ""      
+        st.session_state["full_name_filter"] = ""    
+
+    if "status_filter" not in st.session_state:
+        st.session_state["status_filter"] = ""          
 
     if "selected_row_app_id" not in st.session_state:
         st.session_state["selected_row_app_id"] = None             
@@ -1248,6 +1256,7 @@ else:
             st.session_state["position_filter"] = ""
             st.session_state["email_filter"] = ""
             st.session_state["full_name_filter"] = ""
+            st.session_state["status_filter"] = ""            
             st.session_state.pop("email_duplicate_active", None)
             st.session_state["selected_row_app_id"] = None   # Снимает галочку с выделенной в предыдущем действии строки           
             st.session_state["editor_version"] = (
@@ -1256,11 +1265,48 @@ else:
             st.rerun()
 
     with filters_expanded:
-        position_filter_input = st.text_input(
-            t["position"],
-            value=st.session_state["position_filter"]
+        # --- 1. Фильтр по статусу (из прошлого шага) ---
+        status_options = ["", "New", "Hired", "Canceled"]
+        
+        def _fmt_status(s):
+            if s == "": return t.get("status_all", "All")
+            if s == "New": return t.get("status_new", "New")
+            if s == "Hired": return t.get("status_hired", "Hired")
+            if s == "Canceled": return t.get("status_canceled", "Canceled")
+            return s
+
+        current_status_idx = status_options.index(st.session_state["status_filter"]) if st.session_state["status_filter"] in status_options else 0
+        status_filter_input = st.selectbox(
+            t.get("status", "Status"),
+            options=status_options,
+            index=current_status_idx,
+            format_func=_fmt_status
         )
 
+        # --- 2. Фильтр по позиции (умный выпадающий список) ---
+        # Загружаем список должностей из кэша (функция load_positions уже есть в коде)
+        try:
+            _all_positions = load_positions(API_URL)
+            pos_names = [p["pos_name"] for p in _all_positions]
+        except Exception:
+            pos_names = []
+
+        # Чтобы текущий фильтр не терялся, если такой позиции больше нет в базе
+        _current_pos = st.session_state["position_filter"]
+        if _current_pos and _current_pos not in pos_names:
+            pos_names.insert(0, _current_pos)
+
+        _pos_index = pos_names.index(_current_pos) if _current_pos in pos_names else None
+        
+        position_filter_input = st.selectbox(
+            t["position"],
+            options=pos_names,
+            index=_pos_index,
+            accept_new_options=True,  # Позволяет вводить свои значения
+            placeholder="Введите для поиска или выберите...",
+        )
+
+        # --- 3. Остальные фильтры ---
         email_filter_input = st.text_input(
             t["email"],
             value=st.session_state["email_filter"]
@@ -1271,10 +1317,14 @@ else:
             value=st.session_state["full_name_filter"]
         )
 
+        # --- 4. Применение фильтров ---
         if st.button(t["apply_filters"]):
-            st.session_state["position_filter"] = position_filter_input
+            # Если пользователь стер все в selectbox, Streamlit присылает None, 
+            # поэтому заменяем на пустую строку для безопасного сохранения.
+            st.session_state["position_filter"] = position_filter_input if position_filter_input else ""
             st.session_state["email_filter"] = email_filter_input
             st.session_state["full_name_filter"] = full_name_filter_input
+            st.session_state["status_filter"] = status_filter_input
             st.rerun()
 
 
@@ -1300,6 +1350,7 @@ else:
         position_q = st.session_state["position_filter"].strip().casefold()
         full_name_q = st.session_state["full_name_filter"].strip().casefold()
         email_q = st.session_state["email_filter"].strip().casefold()
+        status_q = st.session_state["status_filter"].strip()  # <-- Забираем статус        
 
         applications = all_applications
 
@@ -1309,6 +1360,19 @@ else:
             applications = [a for a in applications if full_name_q in str(a.get("full_name", "")).casefold()]
         if email_q:
             applications = [a for a in applications if email_q in str(a.get("email", "")).casefold()]
+        if status_q:
+            applications = [a for a in applications if a.get("status") == status_q]
+
+        # =========================================
+        # СОРТИРОВКА
+        # Сортируем по дате подачи заявки (app_date) от новых к старым.
+        # Если даты одинаковые, сортируем по ID (от большего к меньшему).
+        # =========================================
+        applications = sorted(
+            applications, 
+            key=lambda x: (x.get("app_date", ""), x.get("id", 0)), 
+            reverse=True
+        )            
 
         # -------------------------------------------------
         # No applications
@@ -1429,6 +1493,19 @@ else:
 
 
                 if normalize_email(edited_email) != normalize_email(original_email):
+                    
+                    # Проверка на валидность формата email
+                    if not is_valid_email(edited_email):
+                        # Сохраняем структуру данных для кастомного вывода с кликабельными полями
+                        st.session_state["current_action_message"] = {
+                            "type": "invalid_email",
+                            "name": original_app['full_name'],
+                            "position": original_app['position_name'],
+                            "error_text": t["invalid_email"]
+                        }
+                        st.session_state["current_action_message_type"] = "error"
+                        break # Прерываем цикл, не отправляя запрос на сервер
+
                     # Проверка на дубликат в этой же должности
                     duplicate_exists = has_email_duplicate(
                         email=edited_email,
@@ -1494,11 +1571,12 @@ else:
 
             # Если успешно сохранили — тоже перезапускаем, чтобы подтянуть чистые данные
             if email_updated_flag:
+                st.session_state.pop("current_action_message", None) # <-- Убираем старую ошибку
                 st.session_state["email_updated_message"] = True
                 st.session_state["editor_version"] = (
                     st.session_state.get("editor_version", 0) + 1
                 )
-                st.rerun()            
+                st.rerun()                      
 
             # Показываем отложенное сообщение об успехе
             if st.session_state.pop("email_updated_message", False):
@@ -1588,15 +1666,20 @@ else:
                 selected_application = applications[selected_index]
                 selected_application_id = selected_application["id"]
 
-                # --- ДОБАВИТЬ ЭТОТ БЛОК ---
+                # Блок стирания сооббщения при смене состояния
                 if st.session_state.get("last_selected_app_for_hire") != selected_application_id:
                     st.session_state["last_selected_app_for_hire"] = selected_application_id
                     st.session_state["show_hire_warning"] = False
                     st.session_state.pop("pending_hire_app_id", None)
-                    # NEW: при смене кандидата сбрасываем и same-email warning
+
+                    # При смене кандидата сбрасываем и same-email warning
                     st.session_state["show_same_email_hire_warning"] = False
                     st.session_state.pop("pending_same_email_app_id", None)
                     st.session_state.pop("pending_same_email_info", None)
+
+                    # Стираем объединенное сообщение при смене кандидата
+                    st.session_state.pop("current_action_message", None) # <-- ЗАМЕНА
+
                 # ---------------------------
 
                 # New selection → clear old slot, AUTO-EXPAND calendar
@@ -1765,17 +1848,74 @@ else:
                             st.session_state.pop("pending_same_email_info", None)
                             st.rerun()
 
-            # FIX 1: Сообщения об успехе — ПРЯМО ПОД КНОПКАМИ (до календаря).
-            # Сообщение о найме (application_hired_message) раньше вообще
-            # не выводилось. Сообщение об отклонении выводилось в самом
-            # конце файла — под календарём, где его не видно.
+            # =========================================
+            # ЕДИНОЕ ОКНО СООБЩЕНИЙ (Успех / Ошибки) РЯМО ПОД КНОПКАМИ (до календаря).
+            # =========================================
+            # Забираем флаги успеха и превращаем их в единое сообщение
+
             if st.session_state.pop("application_hired_message", False):
-                st.success(t.get(
-                    "application_hired",
-                    t.get("status_hired", "Кандидат принят")
-                ))
+                st.session_state["current_action_message"] = t.get("application_hired", t.get("status_hired", "Кандидат принят"))
+                st.session_state["current_action_message_type"] = "success"
             if st.session_state.pop("application_rejected_message", False):
-                st.success(t["application_rejected"])
+                st.session_state["current_action_message"] = t["application_rejected"]
+                st.session_state["current_action_message_type"] = "success"
+            if st.session_state.pop("interview_ready_message", False):
+                st.session_state["current_action_message"] = t.get("interview_ready", "Interview booked successfully.")
+                st.session_state["current_action_message_type"] = "success"
+            if st.session_state.pop("booking_cancelled_message", False):
+                st.session_state["current_action_message"] = t.get("booking_cancelled", "Interview booking cancelled successfully.")
+                st.session_state["current_action_message_type"] = "success"
+
+            # Отрисовываем сообщение, если оно есть в памяти. 
+            # Оно не исчезнет, пока не будет перезаписано новым или пока не сменим кандидата.
+            if st.session_state.get("current_action_message"):
+                _msg_type = st.session_state.get("current_action_message_type", "success")
+                _msg_text = st.session_state["current_action_message"]
+                
+                if _msg_type == "success":
+                    st.success(_msg_text)
+                elif _msg_type == "error":
+                    # Если это ошибка невалидного email (словарь, а не строка)
+                    if isinstance(_msg_text, dict) and _msg_text.get("type") == "invalid_email":
+                        _name = _msg_text["name"]
+                        _pos = _msg_text["position"]
+                        _err = _msg_text["error_text"]
+                        
+                        # Берем текущий шаблон и текст подсказки из словаря
+                        _tpl = t.get("invalid_email_for_candidate", "For {name} ({position}) {error_text}")
+                        _hint = t.get("click_value_to_copy", "Click value to copy")
+                        
+                        # Заменяем {name}, {position} на HTML-спаны
+                        _html_msg = _tpl.replace(
+                            "{name}", 
+                            f'<span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>'
+                        ).replace(
+                            "{position}", 
+                            f'<span class="copy-txt" data-copy="{html.escape(_pos)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_pos)}</span>'
+                        ).replace(
+                            "{error_text}", 
+                            html.escape(_err)
+                        )
+                        
+                        # Добавляем подсказку внизу
+                        _html = f"""
+                        <div style="background-color: #ffebee; color: #c62828; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ef9a9a; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
+                            <div style="margin-bottom: 0.4rem;">{_html_msg}</div>
+                            <div style="font-style: italic; opacity: 0.75; font-size: 14px;">{html.escape(_hint)}</div>
+                        </div>
+                        <script>
+                            document.querySelectorAll('.copy-txt').forEach(function(el) {{
+                                el.addEventListener('click', function() {{
+                                    navigator.clipboard.writeText(this.getAttribute('data-copy'));
+                                }});
+                            }});
+                        </script>
+                        """
+                        # Выводим через components.html, чтобы работал JS. Высоту увеличили до 110.
+                        components.html(_html, height=110)
+                    else:
+                        # Обычная ошибка текстом (например, "Позиция занята" от сервера)
+                        st.error(_msg_text)
 
             # =========================================
             # Промпт «Отменить брони кандидата»
@@ -2102,76 +2242,82 @@ else:
                     custom_css=bold_frame_css,  # <--- This is the magic line
                     key=f"booking_calendar_v{st.session_state['calendar_version']}",
                 )
-
                 # ----- Handle drag-select -----
                 if calendar_result and calendar_result.get("callback") == "select":
-                    sel = calendar_result["select"]
-                    sel_start = datetime.fromisoformat(sel["start"].replace("Z", "+00:00"))
-                    if sel_start.replace(tzinfo=None) < datetime.utcnow():
-                        st.warning(t["slot_in_past"])
+                    if st.session_state.pop("ignore_next_calendar_callback", False):
+                        pass  # Игнорируем старый клик
                     else:
-
-                        st.session_state.pop("selected_booking_uid", None)
-                        st.session_state.pop("selected_booking_start", None)
-                        st.session_state.pop("selected_booking_end", None)
-
-                        if (
-                            st.session_state.get("booking_start") != sel["start"]
-                            or st.session_state.get("booking_end") != sel["end"]
-                        ):
-                            st.session_state["booking_start"] = sel["start"]
-                            st.session_state["booking_end"] = sel["end"]
-                            st.rerun()
-
-                # ----- Handle single-click -----
-                if calendar_result and calendar_result.get("callback") == "dateClick":
-                    date_str = calendar_result["dateClick"]["date"]
-                    try:
-                        start_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                        if start_dt.replace(tzinfo=None) < datetime.utcnow():
+                        sel = calendar_result["select"] # <-- ВОЗВРАЩАЕМ
+                        sel_start = datetime.fromisoformat(sel["start"].replace("Z", "+00:00")) # <-- ВОЗВРАЩАЕМ
+                        
+                        if sel_start.replace(tzinfo=None) < datetime.utcnow():
                             st.warning(t["slot_in_past"])
-                            st.stop()
-
-                        end_dt = start_dt + timedelta(minutes=30)
-                        
-                        # Convert local time to UTC using the existing offset
-                        tz_offset = st.session_state.get("user_tz_offset", 0.0)
-                        
-                        if start_dt.tzinfo is None:
-                            start_utc = start_dt - timedelta(hours=tz_offset)
                         else:
-                            start_utc = start_dt.replace(tzinfo=None)
-                            
-                        if end_dt.tzinfo is None:
-                            end_utc = end_dt - timedelta(hours=tz_offset)
-                        else:
-                            end_utc = end_dt.replace(tzinfo=None)
-
-                        start_iso = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                        end_iso = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-                        overlaps_booked = any(
-                            start_iso < slot["end"] and end_iso > slot["start"]
-                            for slot in booked_slots
-                        )
-
-                        if overlaps_booked:
-                            st.info(t["slot_already_booked"])
-                        else:
-
                             st.session_state.pop("selected_booking_uid", None)
                             st.session_state.pop("selected_booking_start", None)
                             st.session_state.pop("selected_booking_end", None)
 
                             if (
-                                st.session_state.get("booking_start") != start_iso
-                                or st.session_state.get("booking_end") != end_iso
+                                st.session_state.get("booking_start") != sel["start"]
+                                or st.session_state.get("booking_end") != sel["end"]
                             ):
-                                st.session_state["booking_start"] = start_iso
-                                st.session_state["booking_end"] = end_iso
+                                st.session_state["booking_start"] = sel["start"]
+                                st.session_state["booking_end"] = sel["end"]
                                 st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not parse slot: {e}")
+
+                # ----- Handle single-click -----
+                if calendar_result and calendar_result.get("callback") == "dateClick":
+                    # ДОБАВИТЬ ПРОВЕРКУ:
+                    if st.session_state.pop("ignore_next_calendar_callback", False):
+                        pass  # Игнорируем старый клик
+                    else:
+                        date_str = calendar_result["dateClick"]["date"]
+                        try:
+                            start_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            if start_dt.replace(tzinfo=None) < datetime.utcnow():
+                                st.warning(t["slot_in_past"])
+                                st.stop()
+
+                            end_dt = start_dt + timedelta(minutes=30)
+                            
+                            # Convert local time to UTC using the existing offset
+                            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                            
+                            if start_dt.tzinfo is None:
+                                start_utc = start_dt - timedelta(hours=tz_offset)
+                            else:
+                                start_utc = start_dt.replace(tzinfo=None)
+                                
+                            if end_dt.tzinfo is None:
+                                end_utc = end_dt - timedelta(hours=tz_offset)
+                            else:
+                                end_utc = end_dt.replace(tzinfo=None)
+
+                            start_iso = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                            end_iso = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+                            overlaps_booked = any(
+                                start_iso < slot["end"] and end_iso > slot["start"]
+                                for slot in booked_slots
+                            )
+
+                            if overlaps_booked:
+                                st.info(t["slot_already_booked"])
+                            else:
+
+                                st.session_state.pop("selected_booking_uid", None)
+                                st.session_state.pop("selected_booking_start", None)
+                                st.session_state.pop("selected_booking_end", None)
+
+                                if (
+                                    st.session_state.get("booking_start") != start_iso
+                                    or st.session_state.get("booking_end") != end_iso
+                                ):
+                                    st.session_state["booking_start"] = start_iso
+                                    st.session_state["booking_end"] = end_iso
+                                    st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not parse slot: {e}")
 
                 # ----- Handle clicks on booked events -----
                 if calendar_result and calendar_result.get("callback") == "eventClick":
@@ -2244,7 +2390,9 @@ else:
                             except Exception:
                                 detail = cancel_response.text[:300]
 
-                            st.error(f"Cancellation failed: {detail}")
+                            st.session_state["current_action_message"] = f"Cancellation failed: {detail}"
+                            st.session_state["current_action_message_type"] = "error"
+                            st.rerun()
 
                             # Booking no longer active — clear stale selection
                             if cancel_response.status_code in (404, 409):
@@ -2292,8 +2440,9 @@ else:
                             timeout=15,
                         )
                     except requests.RequestException as e:
-                        st.error(f"{t['request_failed']}: {e}")
-                        st.stop()
+                        st.session_state["current_action_message"] = f"{t['request_failed']}: {e}"
+                        st.session_state["current_action_message_type"] = "error"
+                        st.rerun()
 
                     if resp.status_code not in (200, 201):
                         try:
@@ -2303,13 +2452,14 @@ else:
 
                         detail_lower = str(detail).lower()
                         if resp.status_code == 409:
-                            st.error(t["slot_unavailable"])
+                            st.session_state["current_action_message"] = t["slot_unavailable"]
                         elif resp.status_code == 400 and "past" in detail_lower:
-                            st.error(t["slot_in_past"])
+                            st.session_state["current_action_message"] = t["slot_in_past"]
                         else:
-                            st.error(detail)
-
-                        st.stop()
+                            st.session_state["current_action_message"] = detail
+                            
+                        st.session_state["current_action_message_type"] = "error"
+                        st.rerun()
 
                     result = resp.json()
                     load_booked_slots.clear() # <-- Очищаем кэш
@@ -2319,15 +2469,8 @@ else:
                     st.session_state.pop("booking_end", None)
                     st.session_state["interview_ready_message"] = True
                     st.session_state["calendar_version"] += 1  # <--- ВАЖНО
+                    st.session_state["ignore_next_calendar_callback"] = True                     
                     st.rerun()
-
-            if st.session_state.pop("interview_ready_message", False):
-                st.success(t["interview_ready"])
-            
-            if st.session_state.pop("booking_cancelled_message", False):
-                st.success(
-                    t.get("booking_cancelled", "Interview booking cancelled successfully.")
-                )
 
             # ----- Reject -----
             if reject_clicked:
@@ -2350,10 +2493,9 @@ else:
                     )
                     st.rerun()
                 else:
-                    st.error(
-                        f'{t["reject_error"]} '
-                        f'Error code: {response.status_code}.'
-                    )
+                    st.session_state["current_action_message"] = f'{t["reject_error"]} Error code: {response.status_code}.'
+                    st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
 
             # ----- Hire -----
             if hire_clicked or st.session_state.get("force_hire_clicked"):
@@ -2403,7 +2545,9 @@ else:
                     )
                     st.rerun()
                 else:
-                    st.error(f'{t["hire_error"]} Error code: {response.status_code}.')
+                    st.session_state["current_action_message"] = f'{t["hire_error"]} Error code: {response.status_code}.'
+                    st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
 
     except requests.RequestException as e:
 
