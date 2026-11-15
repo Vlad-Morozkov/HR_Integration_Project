@@ -15,12 +15,24 @@ import html
 import json
 import streamlit.components.v1 as components
 
+from api_client import ApiClient, ApiConflictError, ApiLockedError
+
+# Local
+API_URL = "http://127.0.0.1:8000" 
+
+# Prod
+# API_URL = "https://hr-integration-project-swart.vercel.app"
+
+api = ApiClient(API_URL)
+
 from validators import (
     normalize_email,
     is_valid_email,
     is_valid_birth_date,
     has_email_duplicate,
 )
+
+from translations import TEXTS
 
 # 1. САМАЯ ПЕРВАЯ КОМАНДА STREAMLIT
 st.set_page_config(
@@ -176,12 +188,6 @@ def show_duplicate_email_notice(
 
     components.html(html_content, height=110)
 
-# Local
-API_URL = "http://127.0.0.1:8000" 
-
-# Prod
-# API_URL = "https://hr-integration-project-swart.vercel.app"
-
 
 # =========================================================
 # КЭШИРУЕМЫЕ ЗАГРУЗКИ (Способ Б)
@@ -252,361 +258,6 @@ with col_language:
     )
 
 lang = "ru" if language == "Русский" else "en"
-
-
-TEXTS = {
-    "en": {
-        "title":                 "HR Hiring System",
-        "mode":                  "Select mode",
-        "candidate":             "Candidate",
-        "hr":                    "HR",
-
-        #----------
-        # Candidate Mode
-        #----------
-
-        "fill_test_data":        "Fill with test data",
-        "clear_fields":          "Clear fields",
-        "position":              "Position",
-        "full_name":             "Full Name",
-        "email":                 "Email",
-        "education":             "Education",
-        "experience":            "Experience",
-        "birth_date":            "Birth Date",
-        "submit_application":    "Submit Application",
-
-        #----------
-        # Booking review
-        #----------
-
-        "my_bookings": "My Bookings",
-        "select_candidate_booking": "Select Candidate (with active bookings)",
-        "no_active_bookings": "No candidates with active upcoming bookings found.",
-        "date": "Date",
-        "time": "Time",
-        "select_booking":           "Select",
-        "reschedule_booking":       "Reschedule",
-        "cancel_booking":           "Cancel Booking",
-        "booking_url_missing":      "URL not provided by backend",
-        "cancel_booking_for_reason": "Cancel booking for candidate",
-        "dismiss":                  "Dismiss",
-        "has_booking_at":           "has a booking at",
-        "cancellation_ask":         "Do you need to cancel it?",     
-        "bookings_cancelled_successfully":  "All bookings cancelled successfully.",           
-     
-        #----------
-        # Notiffications
-        #----------
-
-        "empty_db":              "The database is empty. Would you like to create demo data?",
-        "success":               "Data submitted successfully.",
-        "birth_date_error":      "Birth date cannot be today or in the future.",
-        "empty_bdate_field":     "Fill birth date field.",
-        "no_positions":          "No positions available.",
-        "connection_error":      "Could not connect to the HR system.",
-        "duplicate_application": "You have already applied for this position.",
-        "invalid_email":         "Please enter a valid email address.",
-        "invalid_email_for_candidate": "For {name} ({position}) {error_text}",        
-
-        #----------
-        # HR Mode
-        #----------
-
-        "refresh":               "Refresh",
-        "filters":               "Filters",
-        "clear_filters":         "Clear filters",
-        "apply_filters":         "Apply",
-        "applications":          "Applications",
-        "support_email":         "Support Email",
-        "positions":             "Positions",
-        "available":             "Available",
-        "new_position":          "New Position",
-        "add_position":          "Add Position",
-
-        #----------
-        # Notiffications
-        #----------
-
-        "position_empty":        "Position name cannot be empty.",
-        "position_added":        "Position added successfully.",
-        "position_add_error":    "Could not add position.",
-        
-        # Buttons
-
-        "reset_demo":            "Reset & Load Demo Data",
-        "system_locked_message": 
-                "The system is updating. Another user is currently loading data. Please wait 1-2 minutes.",
-        #----------
-        # Notiffications
-        #----------
-
-        "demo_loaded":           "Demo data loaded successfully.",
-        "DemoData&BookingGeneration": 
-                "⏳ Demo data is being loaded and booking via Cal.com is being set up. Please wait...",
-        "demo_load_error":       "Could not load demo data.",
-        "demo_load_error_check_connection":
-               "Please check the connection and try again.",
-        "no_applications":       "No applications found.",
-        "select_one":            "Select one application.",
-        "select_only_one":       "Please select only one application.",
-        "candidate_already_hired":      "This candidate is already hired",
-        "position_occupied_warning":    
-                    "Position is already occupied. You can hire the candidate, but you need to check the number of slots.",
-        "hire_anyway":  "Hire candidate anyway",
-        "cancel":       "Cancel",     
-
-        # Headers
-
-        "email_help":            "Candidate email",
-
-        #----------
-        # Notiffications
-        #----------
-
-        "email_duplicate_active": 
-            "This email {email} is already used for an active application to this position.",
-        "click_email_to_copy":   "Click email to copy",
-        "cancel_email_changes":  "Click Refresh to cancel email changes",
-        "email_copied":          "Email copied!",
-        "email_updated":         "Email updated successfully.",
-        "email_update_error":    "Could not update email.",
-        "same_email_hire_prompt": 
-            "⚠️ A candidate with this email {email} is already hired for «{hired_position}». Do you want to hire them again for «{current_position}»?",
-        "click_value_to_copy":   "Click value to copy",
-
-        # Buttons
-
-        "review":                "Review",
-        "Interview":             "Interview",
-        "hire":                  "Hire",
-        "reject":                "Reject",
-
-        # Calendar
-
-        "collapse_calendar":    "Collapse calendar",
-        "expand_calendar":      "Expand calendar",
-        "calendar":         "Calendar",
-        "calendar_booked":  "Booked",
-        "today":            "today",
-        "week":             "week",
-        "day":              "day",
-        "all_day":          "all-day",
-        "locale_code":      "en",
-        "booked":           "Booked",
-        "cancel_booking":   "Cancel Booking",
-        "booking_cancelled":    "Interview booking cancelled successfully.",
-        "canceling_booking":    "Canceling booking. Please wait...",
-        "selected_booking": "Selected booking",
-
-        # Application's notiffications
-
-        "select_slot_first":     "Please select a free time slot on the calendar.",
-        "slot_already_booked":   "That slot is already booked.",
-        "slot_unavailable":      "Selected unavailable time (set at Cal.com)",
-        "interview_ready":       "Booked",
-        "slot_in_past":          "You select a slot in the past.",
-        "selected_slot":         "Selected slot",
-        "application_hired":     "Application hired.",
-        "application_rejected":  "Application rejected.",
-        "hire_error":            "Could not hire application.",
-        "reject_error":          "Could not reject application.",
-        "request_failed":        "Request failed",
-
-        # Headers
-
-        "candidate_name":        "Full Name",
-        "education":             "Education",
-        "experience":            "Experience",
-        "application_date":      "Application Date",
-        "status":                "Status",
-        "select":                "Select",
-
-        "submit_error":          "Data not submitted. Please try again later. Error code: {code}.",
-        "fill_field":            "Fill {field_name}",
-
-        "status_new":            "New",
-        "status_hired":          "Hired",
-        "status_canceled":       "Canceled",
-        "status_all":            "All",            
-    },
-
-    "ru": {
-        "title":                 "Система найма сотрудников",
-        "mode":                  "Выберите режим",
-        "candidate":             "Кандидат",
-        "hr":                    "HR",
-
-        #----------
-        # Candidate Mode
-        #----------
-
-        "fill_test_data":        "Заполнить Demo данными",
-        "clear_fields":          "Очистить поля",
-        "position":              "Должность",
-        "full_name":             "ФИО",
-        "email":                 "Email",
-        "education":             "Образование",
-        "experience":            "Опыт работы",
-        "birth_date":            "Дата рождения",
-        "submit_application":    "Отправить заявку",
-
-        #----------
-        # Booking review
-        #----------
-
-        "my_bookings":              "Мои собеседования",
-        "select_candidate_booking": "Выберите кандидата (с активными записями)",
-        "no_active_bookings":       "Не найдено кандидатов с активными предстоящими записями.",
-        "date":                     "Дата",
-        "time":                     "Время",
-        "select_booking":           "Выбрать",
-        "reschedule_booking":       "Изменить встречу",
-        "cancel_booking":           "Отменить",
-        "booking_url_missing":      "backend не предоставил URL",
-        "cancel_booking_for_reason": "Отменить записи для кандидата",
-        "dismiss":                  "Закрыть",
-        "has_booking_at":           "имеет запись на",
-        "cancellation_ask":         "Хотите отменить?",
-        "bookings_cancelled_successfully":  "Все записи для кандидата отменены.",         
-
-        #----------
-        # Notiffications
-        #----------
-
-
-        "empty_db":              "База данных пуста. Хотите заполнить demo данными?",
-        "success":               "Данные успешно отправлены.",
-        "birth_date_error":      "Дата рождения не может быть сегодня или в будущем.",
-        "empty_bdate_field":     "Заполните дату рождения.",
-        "no_positions":          "Нет доступных вакансий.",
-        "connection_error":      "Не удалось подключиться к системе найма.",
-        "duplicate_application": "Вы уже подавали заявку на эту должность.",
-        "invalid_email":         "Пожалуйста, введите корректный адрес электронной почты.",
-        "invalid_email_for_candidate": "Для {name} ({position}) {error_text}",
-
-        #----------
-        # HR Mode
-        #----------
-
-        "refresh":               "Обновить",
-        "filters":               "Фильтры",
-        "clear_filters":         "Очистить фильтры",
-        "apply_filters":         "Применить",
-        "applications":          "Заявки",
-        "support_email":         "Email службы поддержки",
-        "positions":             "Должности",
-        "available":             "Доступна",
-        "new_position":          "Новая должность",
-        "add_position":          "Добавить должность",
-
-        #----------
-        # Notiffications
-        #----------
-
-        "position_empty":        "Название должности не может быть пустым.",
-        "position_added":        "Должность успешно добавлена.",
-        "position_add_error":    "Не удалось добавить должность.",
-
-        # Buttons
-
-        "reset_demo":            "Сбросить и загрузить Demo-данные",
-        "system_locked_message": 
-            "Система обновляется. Другой пользователь выполняет загрузку данных. Пожалуйста, подождите 1-2 минуты.",
-
-
-        #----------
-        # Notiffications
-        #----------
-
-        "demo_loaded":           "Demo-данные успешно загружены.",
-        "DemoData&BookingGeneration": 
-                "⏳ Идёт генерация демо-данных и записей в Cal.com. Пожалуйста, подождите...",        
-        "demo_load_error":       "Не удалось загрузить Demo-данные.",
-        "demo_load_error_check_connection":
-               "Пожалуйста проверьте соединение и повторите запрос снова.",
-        "no_applications":       "Заявки не найдены.",
-        "select_one":            "Выберите одну заявку.",
-        "select_only_one":       "Пожалуйста, выберите только одну заявку.",
-        "candidate_already_hired":"Этот кандидат уже принят на работу",
-        "position_occupied_warning":    
-                "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок.",
-        "hire_anyway":  "Принять кандидата всё равно",
-        "cancel":       "Отмена",
-
-
-        # Email buttons
-
-        "email_help":            "Email кандидата",
-
-        # Email notifs
-
-        "email_duplicate_active":
-            "Почта {email} уже используется в активной заявке на ту же должность.",
-        "cancel_email_changes":  "Нажмите Обновить, чтобы отменить изменение email",
-        "click_email_to_copy":   "Нажмите, чтобы скопировать",
-        "email_copied":          "Email скопирован!",
-        "email_updated":         "Email успешно обновлён.",
-        "email_update_error":    "Не удалось обновить email.",
-        "same_email_hire_prompt": 
-            "⚠️ Кандидат с этим email {email} уже принят на должность «{hired_position}». Хотите ли принять его повторно на должность «{current_position}»?",
-        "click_value_to_copy":   "Click value to copy",
-
-        # Кнопки
-        
-        "review":                "Рассмотреть",
-        "Interview":             "Собеседовать",
-        "hire":                  "Принять на работу",
-        "reject":                "Отклонить",
-
-
-
-        # Calendar
-
-        "collapse_calendar":    "Скрыть календарь",
-        "expand_calendar":      "Показать календарь",
-        "calendar":         "Календарь",
-        "calendar_booked":  "Занято",
-        "today":            "Сегодня",
-        "week":             "Неделя",
-        "day":              "День",
-        "all_day":          "Весь день",
-        "locale_code":      "ru",
-        "booked":           "Забронировано",
-        "cancel_booking":   "Отменить собеседование",
-        "booking_cancelled":    "Собеседование успешно отменено.",
-        "canceling_booking":    "Отмена собеседования. Подождите подалуйста.",        
-        "selected_booking":     "Выбранная запись",
-        # Сообщения 
-        
-        "interview_ready":       "Собеседование запланировано в календаре.",
-        "slot_in_past":          "Вы выбрали прошедше время",
-        "selected_slot":         "Выбрано время",        
-        "select_slot_first":     "Выберите свободный слот в календаре",
-        "slot_already_booked":   "Этот слот забронирован.",
-        "slot_unavailable":      "Выбрано нерабочее время (настроено в Cal.com)",
-        "application_hired":     "Кандидат принят на работу.",
-        "application_rejected":  "Заявка отклонена.",
-        "hire_error":            "Не удалось принять кандидата на работу.",
-        "reject_error":          "Не удалось отклонить заявку.",
-        "request_failed":        "Ошибка запроса",
-
-        "candidate_name":        "ФИО",
-        "education":             "Образование",
-        "experience":            "Опыт работы",
-        "application_date":      "Дата заявки",
-        "status":                "Статус",
-        "select":                "Выбрать",
-
-        "submit_error":          "Не удалось отправить данные. Попробуйте позже. Код ошибки: {code}.",
-        "fill_field":            "Заполните поле «{field_name}»",
-
-        "status_new":            "Новая",
-        "status_hired":          "Принят",
-        "status_canceled":       "Отклонена",
-        "status_all":            "Все",        
-    }
-
-}
 
 
 t = TEXTS[lang]
@@ -1355,6 +1006,11 @@ else:
             load_all_applications.clear()
             load_positions.clear()
             load_booked_slots.clear()
+            
+            # Очищаем залипшие сообщения
+            st.session_state.pop("current_action_message", None)
+            st.session_state.pop("current_action_message_type", None)
+            
             st.session_state["editor_version"] = (
                 st.session_state.get("editor_version", 0) + 1
             )
@@ -1681,31 +1337,65 @@ else:
                     st.session_state.pop("email_duplicate_active", None)
 
                     # Сохраняем в базу
-                    email_response = requests.patch(
-                        f"{API_URL}/api/applications/{app_id}/email",
-                        json={"email": edited_email},
-                        timeout=5
-                    )
+                    try:
+                        # 1. Отправляем запрос на сервер
+                        api.update_email(app_id, edited_email, original_email)
+                        
+                        # 2. Если ошибки нет — очищаем кэш и ставим сообщение об успехе
+                        load_all_applications.clear()
+                        st.session_state["email_updated_message"] = True
 
-                    if email_response.status_code == 200:
-                        load_all_applications.clear() # <-- Очищаем кэш
-                        email_updated_flag = True
-                    
-                    elif email_response.status_code == 409:
-                        detail = email_response.json().get("detail", t["email_duplicate_active"])
-                        if "already used for an active application" in detail:
+                        st.session_state.pop("current_action_message", None)
+                        st.session_state.pop("current_action_message_type", None)
+
+                        st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
+                        
+                        # 3. Принудительно перезапускаем страницу, чтобы обновить таблицу
+                        st.rerun()
+                        
+                    except ApiConflictError as e:
+                        if e.code == "EMAIL_CONFLICT":
+                            st.session_state["current_action_message"] = {
+                                "type": "email_conflict",
+                                "name": original_app['full_name'],
+                                "position": original_app['position_name'],
+                            }
+                            st.session_state["current_action_message_type"] = "error"
+                        else:
                             st.session_state["email_duplicate_email"] = edited_email
                             st.session_state["email_duplicate_show"] = True
-                        else:
-                            st.error(detail)
+                        force_ui_reset = True
+                        break
+                    except ApiLockedError:
+                        st.session_state["current_action_message"] = t["system_locked_message"]
+                        st.session_state["current_action_message_type"] = "error"
+                        force_ui_reset = True
+                        break
+                    except Exception as ex:
+                        load_all_applications.clear() # (очищаем кэш при ошибке)
+                        st.error(f"Ошибка: {ex}")
                         force_ui_reset = True
                         break
 
-                    else:
-                        detail = email_response.json().get("detail", "")
-                        st.error(f'{t["email_update_error"]} {detail} (Error code: {email_response.status_code})')
-                        force_ui_reset = True
-                        break
+                    # if email_response.status_code == 200:
+                    #     load_all_applications.clear() # <-- Очищаем кэш
+                    #     email_updated_flag = True
+                    
+                    # elif email_response.status_code == 409:
+                    #     detail = email_response.json().get("detail", t["email_duplicate_active"])
+                    #     if "already used for an active application" in detail:
+                    #         st.session_state["email_duplicate_email"] = edited_email
+                    #         st.session_state["email_duplicate_show"] = True
+                    #     else:
+                    #         st.error(detail)
+                    #     force_ui_reset = True
+                    #     break
+
+                    # else:
+                    #     detail = email_response.json().get("detail", "")
+                    #     st.error(f'{t["email_update_error"]} {detail} (Error code: {email_response.status_code})')
+                    #     force_ui_reset = True
+                    #     break
 
             # Если была ошибка (дубликат или сбой) — жестко сбрасываем UI
             if force_ui_reset:
@@ -1994,43 +1684,47 @@ else:
                             st.rerun()
 
             # =========================================
-            # ЕДИНОЕ ОКНО СООБЩЕНИЙ (Успех / Ошибки) РЯМО ПОД КНОПКАМИ (до календаря).
+            # ЕДИНОЕ ОКНО СООБЩЕНИЙ (Успех / Ошибки)
             # =========================================
-            # Забираем флаги успеха и превращаем их в единое сообщение
 
             if st.session_state.pop("application_hired_message", False):
-                st.session_state["current_action_message"] = t.get("application_hired", t.get("status_hired", "Кандидат принят"))
+                st.session_state["current_action_message"] = {"type": "success", "key": "application_hired"}
                 st.session_state["current_action_message_type"] = "success"
             if st.session_state.pop("application_rejected_message", False):
-                st.session_state["current_action_message"] = t["application_rejected"]
+                st.session_state["current_action_message"] = {"type": "success", "key": "application_rejected"}
                 st.session_state["current_action_message_type"] = "success"
             if st.session_state.pop("interview_ready_message", False):
-                st.session_state["current_action_message"] = t.get("interview_ready", "Interview booked successfully.")
+                st.session_state["current_action_message"] = {"type": "success", "key": "interview_ready"}
                 st.session_state["current_action_message_type"] = "success"
             if st.session_state.pop("booking_cancelled_message", False):
-                st.session_state["current_action_message"] = t.get("booking_cancelled", "Interview booking cancelled successfully.")
+                st.session_state["current_action_message"] = {"type": "success", "key": "booking_cancelled"}
                 st.session_state["current_action_message_type"] = "success"
 
-            # Отрисовываем сообщение, если оно есть в памяти. 
-            # Оно не исчезнет, пока не будет перезаписано новым или пока не сменим кандидата.
             if st.session_state.get("current_action_message"):
                 _msg_type = st.session_state.get("current_action_message_type", "success")
                 _msg_text = st.session_state["current_action_message"]
                 
                 if _msg_type == "success":
-                    st.success(_msg_text)
+                    if isinstance(_msg_text, dict) and _msg_text.get("type") == "success":
+                        # Берем текст из словаря в момент отрисовки
+                        st.success(t.get(_msg_text["key"], "Done"))
+                    else:
+                        st.success(_msg_text)
+                    
                 elif _msg_type == "error":
-                    # Если это ошибка невалидного email (словарь, а не строка)
-                    if isinstance(_msg_text, dict) and _msg_text.get("type") == "invalid_email":
+                    if isinstance(_msg_text, dict) and _msg_text.get("type") in ["invalid_email", "email_conflict"]:
                         _name = _msg_text["name"]
                         _pos = _msg_text["position"]
-                        _err = _msg_text["error_text"]
                         
-                        # Берем текущий шаблон и текст подсказки из словаря
+                        # Текст берем из словаря TEXTS в момент рендеринга
+                        if _msg_text.get("type") == "email_conflict":
+                            _err = t["email_conflict_message"]
+                        else:
+                            _err = t["invalid_email"]
+                            
                         _tpl = t.get("invalid_email_for_candidate", "For {name} ({position}) {error_text}")
                         _hint = t.get("click_value_to_copy", "Click value to copy")
                         
-                        # Заменяем {name}, {position} на HTML-спаны
                         _html_msg = _tpl.replace(
                             "{name}", 
                             f'<span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>'
@@ -2042,7 +1736,6 @@ else:
                             html.escape(_err)
                         )
                         
-                        # Добавляем подсказку внизу
                         _html = f"""
                         <div style="background-color: #ffebee; color: #c62828; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ef9a9a; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
                             <div style="margin-bottom: 0.4rem;">{_html_msg}</div>
@@ -2056,11 +1749,36 @@ else:
                             }});
                         </script>
                         """
-                        # Выводим через components.html, чтобы работал JS. Высоту увеличили до 110.
                         components.html(_html, height=110)
                     else:
-                        # Обычная ошибка текстом (например, "Позиция занята" от сервера)
                         st.error(_msg_text)
+                        
+                elif _msg_type == "warning" and isinstance(_msg_text, dict) and _msg_text.get("type") == "position_occupied":
+                    # Вывод предупреждения о занятой позиции
+                    _name = _msg_text["name"]
+                    _pos = _msg_text["position"]
+                    _hint = t.get("click_value_to_copy", "Click value to copy")
+                    
+                    _html = f"""
+                    <div style="background-color: #fff3cd; color: #664d03; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ffe69c; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
+                        <div style="margin-bottom: 0.4rem;">
+                            <span style="font-weight: 700;">⚠️</span> {t["position_occupied_conflict"]}
+                        </div>
+                        <div style="font-size: 14px; opacity: 0.85;">
+                            <span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>
+                            —
+                            <span class="copy-txt" data-copy="{html.escape(_pos)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_pos)}</span>
+                        </div>
+                    </div>
+                    <script>
+                        document.querySelectorAll('.copy-txt').forEach(function(el) {{
+                            el.addEventListener('click', function() {{
+                                navigator.clipboard.writeText(this.getAttribute('data-copy'));
+                            }});
+                        }});
+                    </script>
+                    """
+                    components.html(_html, height=110)
 
             # =========================================
             # Промпт «Отменить брони кандидата»
@@ -2617,65 +2335,52 @@ else:
                             st.session_state["current_action_message"] = t["slot_in_past"]
                         elif resp.status_code == 503:
                             st.session_state["current_action_message"] = t["system_locked_message"]
-                            _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                            _handle_stale_data_or_lock()
                         elif resp.status_code == 404:
-                            st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена."
-                            _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                            st.session_state["current_action_message"] = t["application_not_found"]
+                            _handle_stale_data_or_lock()
                         else:
-                            st.session_state["current_action_message"] = t["system_locked_message"] or f"Error {resp.status_code}"
+                            st.session_state["current_action_message"] = detail or f"Error {resp.status_code}"
                             
                         st.session_state["current_action_message_type"] = "error"
                         st.rerun()
 
                     result = resp.json()
-                    load_booked_slots.clear() # <-- Очищаем кэш
-                    load_all_applications.clear() # <-- Очищаем кэш
+                    load_booked_slots.clear()
+                    load_all_applications.clear()
                     st.session_state["interview_booking_uid"] = result.get("booking_uid", "")
                     st.session_state.pop("booking_start", None)
                     st.session_state.pop("booking_end", None)
                     st.session_state["interview_ready_message"] = True
-                    st.session_state["calendar_version"] += 1  # <--- ВАЖНО
+                    st.session_state["calendar_version"] += 1
                     st.session_state["ignore_next_calendar_callback"] = True                     
                     st.rerun()
 
             # ----- Reject -----
             if reject_clicked:
-                response = requests.patch(
-                    f"{API_URL}/api/applications/{selected_application_id}/status",
-                    json={
-                        "status": "Canceled",
-                        "email": edited_email
-                    },
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    load_all_applications.clear() # <-- Очищаем кэш
-                    st.session_state["application_rejected_message"] = True
-                    # NEW: та же логика, что и при найме — предложить
-                    # отменить будущие брони кандидата.
-                    _schedule_bookings_cancel_prompt(
-                        selected_application_id,
-                        selected_application["full_name"],
+                try:
+                    api.update_status(
+                        app_id=selected_application_id,
+                        status="Canceled",
+                        email=edited_email,
+                        support_email=support_email,
+                        force=False
                     )
+                    load_all_applications.clear()
+                    load_positions.clear()
+                    st.session_state["application_rejected_message"] = True
+                    _schedule_bookings_cancel_prompt(selected_application_id, selected_application["full_name"])
                     st.rerun()
-                else:
-                    try:
-                        # Пытаемся достать текст ошибки от сервера (наш detail про монопольный режим)
-                        detail = response.json().get("detail", "")
-                    except Exception:
-                        detail = ""
-                        
-                    if response.status_code == 503:
-                        # Если это блокировка базы, показываем её напрямую
-                        st.session_state["current_action_message"] = t["system_locked_message"]
-                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
-                    elif response.status_code == 404:
-                        # Если заявку удалили (устаревшие данные)
-                        st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена другим пользователем."
-                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
-                    else:
-                        st.session_state["current_action_message"] = f'... (Error: {response.status_code})'
-                        
+                except ApiConflictError as e:
+                    st.session_state["current_action_message"] = e.detail
+                    st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
+                except ApiLockedError:
+                    st.session_state["current_action_message"] = t["system_locked_message"]
+                    st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
+                except Exception as e:
+                    st.session_state["current_action_message"] = f"{t['request_failed']}: {e}"
                     st.session_state["current_action_message_type"] = "error"
                     st.rerun()
 
@@ -2697,9 +2402,17 @@ else:
                     if not is_free:
                         st.session_state["pending_hire_app_id"] = selected_application_id
                         st.session_state["show_hire_warning"] = True
+                        
+                        # Сохраняем данные для плашки, чтобы она переводилась
+                        st.session_state["current_action_message"] = {
+                            "type": "position_occupied",
+                            "name": selected_application["full_name"],
+                            "position": selected_application["position_name"],
+                        }
+                        st.session_state["current_action_message_type"] = "warning"
                         st.rerun()
 
-                    # Проверка 2 (NEW): тот же email уже нанят на другую должность?
+                    # Проверка 2: тот же email уже нанят на другую должность?
                     if same_email_hired_app is not None:
                         st.session_state["pending_same_email_app_id"] = selected_application_id
                         st.session_state["pending_same_email_info"] = {
@@ -2710,40 +2423,42 @@ else:
                         st.session_state["show_same_email_hire_warning"] = True
                         st.rerun()
                         
-                # Сам процесс найма (сработает и для обычной кнопки, и для "Всё равно")
-                response = requests.patch(
-                    f"{API_URL}/api/applications/{selected_application_id}/status",
-                    json={"status": "Hired", "email": edited_email, "support_email": support_email},
-                    timeout=10
-                )
-
-                if response.status_code == 200:
-                    load_all_applications.clear() # <-- Очищаем кэш
-                    load_positions.clear()         # <-- Очищаем кэш (позиция стала занята)
-                    st.session_state["application_hired_message"] = True
-                    _schedule_bookings_cancel_prompt(
-                        selected_application_id,
-                        selected_application["full_name"],
+                # Сам процесс найма
+                try:
+                    api.update_status(
+                        app_id=selected_application_id,
+                        status="Hired",
+                        email=edited_email,
+                        support_email=support_email,
+                        force=force_hire
                     )
+                    load_all_applications.clear()
+                    load_positions.clear()
+                    st.session_state["application_hired_message"] = True
+                    _schedule_bookings_cancel_prompt(selected_application_id, selected_application["full_name"])
                     st.rerun()
-                else:
-                    try:
-                        # Пытаемся достать текст ошибки от сервера (наш detail про монопольный режим)
-                        detail = response.json().get("detail", "")
-                    except Exception:
-                        detail = ""
+                except ApiConflictError as e:
+                    if e.code == "POSITION_OCCUPIED":
+                        st.session_state["pending_hire_app_id"] = selected_application_id
+                        st.session_state["show_hire_warning"] = True
                         
-                    if response.status_code == 503:
-                        # Если это блокировка базы, показываем её напрямую
-                        st.session_state["current_action_message"] = t["system_locked_message"]
-                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
-                    elif response.status_code == 404:
-                        # Если заявку удалили (устаревшие данные)
-                        st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена другим пользователем."
-                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                        # Передаем словарь для красивого вывода с кликабельными полями
+                        st.session_state["current_action_message"] = {
+                            "type": "position_occupied",
+                            "name": selected_application["full_name"],
+                            "position": selected_application["position_name"],
+                        }
+                        st.session_state["current_action_message_type"] = "warning"
                     else:
-                        st.session_state["current_action_message"] = f'... (Error: {response.status_code})'
-                        
+                        st.session_state["current_action_message"] = e.detail
+                        st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
+                except ApiLockedError:
+                    st.session_state["current_action_message"] = t["system_locked_message"]
+                    st.session_state["current_action_message_type"] = "error"
+                    st.rerun()
+                except Exception as e:
+                    st.session_state["current_action_message"] = f"{t['request_failed']}: {e}"
                     st.session_state["current_action_message_type"] = "error"
                     st.rerun()
 
@@ -2893,14 +2608,19 @@ else:
             return
 
         try:
-            response = requests.post(
-                f"{API_URL}/api/positions",
-                json={
-                    "pos_name": pos_name,
-                    "is_free": True
-                },
-                timeout=5
-            )
+            api.create_position(pos_name)
+            load_positions.clear()
+            st.session_state["position_added_message"] = True
+            st.session_state["new_position_input"] = ""
+        except ApiConflictError as e:
+            if e.code == "POSITION_EXISTS":
+                st.session_state["position_error_message"] = "Должность с таким названием уже существует."
+            else:
+                st.session_state["position_error_message"] = e.detail
+        except ApiLockedError:
+            st.session_state["position_error_message"] = t["system_locked_message"]
+        except Exception as e:
+            st.session_state["position_error_message"] = str(e)
 
             if response.status_code == 201:
                 load_positions.clear() # <-- Очищаем кэш

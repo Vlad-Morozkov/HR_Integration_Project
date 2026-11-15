@@ -550,11 +550,14 @@ class StatusUpdateRequest(BaseModel):
     status: str
     email: str
     support_email: str = ""
+    force: bool = False    
 
 
 class EmailUpdateRequest(BaseModel):
     email: str
-# was "send_brevo_email"
+    expected_email: str | None = None
+
+
 def send_email(
     to_email: str,
     subject: str,
@@ -883,6 +886,7 @@ def update_application_status(
 
     try:
 
+        time.sleep(5) # <-- Искусственная задержка
         # 1. Find application
         application = db.query(Application).filter(
             Application.id == app_id
@@ -920,6 +924,12 @@ def update_application_status(
 
         # 5. Make position unavailable after hiring
         if request.status == "Hired":
+            # <-- ДОБАВИТЬ ПРОВЕРКУ ЗАНЯТОСТИ
+            if not position.is_free and not request.force:
+                raise HTTPException(
+                    status_code=409,
+                    detail="POSITION_OCCUPIED: Позиция уже занята другим кандидатом."
+                )
             position.is_free = False
 
         db.commit()
@@ -1005,9 +1015,6 @@ def update_application_status(
             detail="Internal server error during status update."
         )
 
-class EmailUpdateRequest(BaseModel):
-    email: str
-
 
 @app.patch(
     "/api/applications/{app_id}/email",
@@ -1019,6 +1026,7 @@ def update_application_email(
     db: Session = Depends(get_db)
 ):
     try:
+        time.sleep(5) # <-- Искусственная задержка        
         application = db.query(Application).filter(
             Application.id == app_id
         ).first()
@@ -1028,6 +1036,13 @@ def update_application_email(
                 status_code=404,
                 detail="Application not found."
             )
+
+        # ПРОВЕРКА КОНФЛИКТА
+        if request.expected_email is not None and application.email != request.expected_email:
+            raise HTTPException(
+                status_code=409,
+                detail="EMAIL_CONFLICT: Email был изменён другим пользователем."
+            )        
 
         new_email = normalize_email(request.email)
 
@@ -1755,17 +1770,27 @@ def get_positions(
         )
 
 
-@app.post(
-    "/api/positions",
-    response_model=PositionResponse,
-    status_code=status.HTTP_201_CREATED
-)
+@app.post("/api/positions", 
+          status_code=status.HTTP_201_CREATED
+          )
 def create_position(
     position_data: PositionCreate,
     db: Session = Depends(get_db)
 ):
+    # 1. Достаем имя и убираем лишние пробелы
+    pos_name = position_data.pos_name.strip()
+
+    # 2. Проверяем на дубли ДО создания объекта
+    existing = db.query(Position).filter(Position.pos_name == pos_name).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="POSITION_EXISTS: Должность с таким названием уже существует."
+        )    
+
+    # 3. Создаем
     new_position = Position(
-        pos_name=position_data.pos_name,
+        pos_name=pos_name,
         is_free=position_data.is_free
     )
 
