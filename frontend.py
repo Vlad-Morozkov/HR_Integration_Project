@@ -10,7 +10,7 @@ from streamlit_calendar import calendar
 
 from datetime import date, datetime, timedelta
 
-
+import time
 import html
 import json
 import streamlit.components.v1 as components
@@ -342,7 +342,7 @@ TEXTS = {
 
         "demo_loaded":           "Demo data loaded successfully.",
         "DemoData&BookingGeneration": 
-                "Demo data is being loaded and booking via Cal.com is being set up. Please wait...",
+                "⏳ Demo data is being loaded and booking via Cal.com is being set up. Please wait...",
         "demo_load_error":       "Could not load demo data.",
         "demo_load_error_check_connection":
                "Please check the connection and try again.",
@@ -520,7 +520,7 @@ TEXTS = {
 
         "demo_loaded":           "Demo-данные успешно загружены.",
         "DemoData&BookingGeneration": 
-                "Идёт генерация демо-данных и записей в Cal.com. Пожалуйста, подождите...",        
+                "⏳ Идёт генерация демо-данных и записей в Cal.com. Пожалуйста, подождите...",        
         "demo_load_error":       "Не удалось загрузить Demo-данные.",
         "demo_load_error_check_connection":
                "Пожалуйста проверьте соединение и повторите запрос снова.",
@@ -1263,6 +1263,79 @@ else:
         
         # 4. Меняем версию таблицы, чтобы она перерисовалась с нуля
         st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1            
+
+    # =========================================================
+    # GLOBAL DEMO LOADING GUARD (Монопольный режим интерфейса)
+    # =========================================================
+    is_demo_loading = st.query_params.get("demo_loading") == "1"
+
+    if is_demo_loading:
+        # Красивый спиннер + текст, который не мигает
+        _spinner_html = f"""
+        <div style="display: flex; align-items: center; gap: 12px; background-color: #e3f2fd; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #90caf9; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; color: #0d47a1;">
+            <div style="border: 3px solid rgba(13, 71, 161, 0.2); border-top: 3px solid #0d47a1; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite;"></div>
+            <span>{t["DemoData&BookingGeneration"]}</span>
+        </div>
+        <style>
+            @keyframes spin {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+        </style>
+        """
+        st.markdown(_spinner_html, unsafe_allow_html=True)
+
+        # 1. Отправляем запрос (если еще не отправляли в этой сессии)
+        if not st.session_state.get("demo_post_sent"):
+            st.session_state["demo_post_sent"] = True
+            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+            try:
+                # Маленький таймаут. Если сервер занят, он ответит 503.
+                requests.post(
+                    f"{API_URL}/api/reset-demo",
+                    params={"tz_offset": tz_offset},
+                    timeout=1
+                )
+            except requests.Timeout:
+                pass # Запрос ушел в работу (сервер взял 15 секунд)
+            except Exception:
+                pass # Игнорируем, статус проверим ниже
+
+        # 2. Используем фрагмент для опроса статуса (без мигания всей страницы)
+        if st.session_state.get("demo_post_sent"):
+            
+            # Проверяем, поддерживает ли твоя версия Streamlit фрагменты
+            if hasattr(st, "fragment"):
+                @st.fragment(run_every=2)
+                def _poll_status():
+                    try:
+                        status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                        is_locked = status_resp.json().get("locked", False)
+                    except Exception:
+                        is_locked = True # Если сервер не отвечает, считаем, что занят
+
+                    if not is_locked:
+                        # Сервер освободился! Завершаем
+                        load_all_applications.clear()
+                        load_positions.clear()
+                        load_booked_slots.clear()
+                        st.session_state["demo_loaded_message"] = True
+                        st.session_state.pop("demo_post_sent", None)
+                        st.query_params.pop("demo_loading", None)
+                        st.rerun() # Перезапускаем страницу уже без плашки
+                    else:
+                        pass # Спиннер уже крутится наверху
+                
+                _poll_status()
+            else:
+                # Резервный вариант для старых версий Streamlit
+                with st.spinner("Пожалуйста, подождите..."):
+                    time.sleep(2)
+                    st.rerun()
+
+        # 3. ЖЕСТКАЯ ОСТАНОВКА ИНТЕРФЕЙСА
+        # Пока идет загрузка, календарь и таблица не рисуются вообще
+        st.stop()
 
     # -----------------------------------------------------
     # HR Header and Refresh
@@ -2864,54 +2937,65 @@ else:
     # Reset demo
     # -----------------------------------------------------
 
-    is_demo_loading = st.query_params.get("demo_loading") == "1"
-
-    if is_demo_loading:
-        st.info(t["DemoData&BookingGeneration"])
-
-    if st.button(t["reset_demo"], disabled=is_demo_loading):
+    if st.button(t["reset_demo"]):
         st.query_params["demo_loading"] = "1"
-        st.rerun()
-
-    if is_demo_loading and not st.session_state.get("demo_post_sent"):
-        st.session_state["demo_post_sent"] = True
-        
-        tz_offset = st.session_state.get("user_tz_offset", 0.0)
-        
-        try:
-            with st.spinner(t["DemoData&BookingGeneration"]):
-                response = requests.post(
-                    f"{API_URL}/api/reset-demo",
-                    params={"tz_offset": tz_offset},
-                    timeout=90
-                )
-                
-            if response.status_code == 200:
-                load_all_applications.clear()
-                load_positions.clear()
-                load_booked_slots.clear()
-                st.session_state["demo_loaded_message"] = True
-            elif response.status_code == 503:
-                # <-- ЛОВИМ МОНОПОЛЬНЫЙ РЕЖИМ
-                try:
-                    detail = response.json().get("detail", "Сброс уже выполняется другим пользователем.")
-                except Exception:
-                    detail = "Сброс уже выполняется другим пользователем."
-                st.error(f"⚠️ {detail}")
-            else:
-                st.error(f'{t["demo_load_error"]} Error code: {response.status_code}.')
-                
-        except requests.RequestException as e:
-            # Если сервер недоступен или таймаут — показываем ошибку
-            st.error(f'{t["request_failed"]}: {e}')
-            
-        finally:
-            # В ЛЮБОМ СЛУЧАЕ (успех или ошибка) очищаем флаги, 
-            # чтобы кнопка разблокировалась и пользователь мог попробовать снова
-            st.session_state.pop("demo_post_sent", None)
-            st.query_params.pop("demo_loading", None)
-            
         st.rerun()
 
     if st.session_state.pop("demo_loaded_message", False):
         st.success(t["demo_loaded"])
+
+    # # -----------------------------------------------------
+    # # Reset demo
+    # # -----------------------------------------------------
+
+    # is_demo_loading = st.query_params.get("demo_loading") == "1"
+
+    # if is_demo_loading:
+    #     st.info(t["DemoData&BookingGeneration"])
+
+    # if st.button(t["reset_demo"], disabled=is_demo_loading):
+    #     st.query_params["demo_loading"] = "1"
+    #     st.rerun()
+
+    # if is_demo_loading and not st.session_state.get("demo_post_sent"):
+    #     st.session_state["demo_post_sent"] = True
+        
+    #     tz_offset = st.session_state.get("user_tz_offset", 0.0)
+        
+    #     try:
+    #         with st.spinner(t["DemoData&BookingGeneration"]):
+    #             response = requests.post(
+    #                 f"{API_URL}/api/reset-demo",
+    #                 params={"tz_offset": tz_offset},
+    #                 timeout=90
+    #             )
+                
+    #         if response.status_code == 200:
+    #             load_all_applications.clear()
+    #             load_positions.clear()
+    #             load_booked_slots.clear()
+    #             st.session_state["demo_loaded_message"] = True
+    #         elif response.status_code == 503:
+    #             # <-- ЛОВИМ МОНОПОЛЬНЫЙ РЕЖИМ
+    #             try:
+    #                 detail = response.json().get("detail", "Сброс уже выполняется другим пользователем.")
+    #             except Exception:
+    #                 detail = "Сброс уже выполняется другим пользователем."
+    #             st.error(f"⚠️ {detail}")
+    #         else:
+    #             st.error(f'{t["demo_load_error"]} Error code: {response.status_code}.')
+                
+    #     except requests.RequestException as e:
+    #         # Если сервер недоступен или таймаут — показываем ошибку
+    #         st.error(f'{t["request_failed"]}: {e}')
+            
+    #     finally:
+    #         # В ЛЮБОМ СЛУЧАЕ (успех или ошибка) очищаем флаги, 
+    #         # чтобы кнопка разблокировалась и пользователь мог попробовать снова
+    #         st.session_state.pop("demo_post_sent", None)
+    #         st.query_params.pop("demo_loading", None)
+            
+    #     st.rerun()
+
+    # if st.session_state.pop("demo_loaded_message", False):
+    #     st.success(t["demo_loaded"])

@@ -1568,9 +1568,9 @@ def reset_demo_data(
     """
 
     try:
-        
+
         # Таймаут для тестирования на несколько пользователей
-        # time.sleep(15)  # <--- ДОБАВЬ ВОТ ЭТУ СТРОКУ СЮДА
+        time.sleep(15)  
 
 
         # 0a. Cancel all confirmed bookings...
