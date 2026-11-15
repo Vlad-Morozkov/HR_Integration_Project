@@ -49,7 +49,7 @@ TEXTS = {
         "no_positions":          "No positions available.",
         "connection_error":      "Could not connect to the HR system.",
         "duplicate_application": "You have already applied for this position.",
-        "invalid_email":         "Please enter a valid email address.",
+        "invalid_email":         "Please enter a valid email address. To restore the previous value, click Refresh.",
         "invalid_email_for_candidate": "For {name} ({position}) {error_text}",        
 
         #----------
@@ -230,7 +230,7 @@ TEXTS = {
         "no_positions":          "Нет доступных вакансий.",
         "connection_error":      "Не удалось подключиться к системе найма.",
         "duplicate_application": "Вы уже подавали заявку на эту должность.",
-        "invalid_email":         "Пожалуйста, введите корректный адрес электронной почты.",
+        "invalid_email":         "Пожалуйста, введите корректный адрес электронной почты. Чтобы восстановить прежнее значение, нажмите «Обновить».",
         "invalid_email_for_candidate": "Для {name} ({position}) {error_text}",
 
         #----------

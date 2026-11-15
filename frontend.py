@@ -8,7 +8,7 @@ from timezone_component import detect_timezone
 # added streamlit_calendar
 from streamlit_calendar import calendar
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import time
 import html
@@ -676,7 +676,22 @@ if mode == t["candidate"]:
     # CANDIDATE BOOKINGS TABLE
     # =========================================================
     st.divider()
-    st.subheader(t.get("my_bookings", "My Bookings"))
+    
+    # Создаем две колонки: 85% под заголовок, 15% под кнопку
+    col_bookings_head, col_bookings_refresh, col_empty0 = st.columns(
+        [0.25, 0.1, 0.75], 
+        vertical_alignment="bottom"
+    )
+    
+    with col_bookings_head:
+        st.subheader(t.get("my_bookings", "My Bookings"))
+        
+    with col_bookings_refresh:
+        if st.button(t.get("refresh", "Refresh"), use_container_width=True, key="refresh_candidate_bookings"):
+            # Очищаем кэш, чтобы подтянуть актуальные брони
+            load_all_applications.clear()
+            load_booked_slots.clear()
+            st.rerun()
 
     try:
         # Fetch all applications and booked slots
@@ -791,13 +806,14 @@ if mode == t["candidate"]:
                 elif len(selected_rows) > 1:
                     st.warning(t.get("select_only_one", "Please select only one booking at a time."))
 
-                # Проверяем статус блокировки на сервере
+                # Проверяем статус блокировки на сервере (один раз для обеих кнопок)
+                system_locked = False
                 try:
                     status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
                     if status_resp.status_code == 200:
                         system_locked = status_resp.json().get("locked", False)
                 except Exception:
-                    system_locked = False
+                    pass
 
                 if system_locked:
                     st.warning(t["system_locked_message"])
@@ -806,52 +822,23 @@ if mode == t["candidate"]:
                 btn_col1, btn_col2 = st.columns(2)
                 
                 with btn_col1:
-                    if st.button(
+                    # Используем нативную ссылку-кнопку Streamlit
+                    st.link_button(
                         t.get("reschedule_booking", "Reschedule"),
-                        disabled=(len(selected_rows) != 1 or final_reschedule_url == "#"),
-                        use_container_width=True,
-                        key="reschedule_btn"
-                    ):
-                        # Проверяем статус системы перед переходом
-                        try:
-                            status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
-                            is_locked = status_resp.json().get("locked", False) if status_resp.status_code == 200 else False
-                        except Exception:
-                            is_locked = False
-                        
-                        if is_locked:
-                            st.warning(t["system_locked_message"])
-                        else:
-                            # Редирект через JS
-                            st.markdown(
-                                f'<script>window.open("{final_reschedule_url}", "_blank");</script>',
-                                unsafe_allow_html=True
-                            )
-                            st.stop()
+                        url=final_reschedule_url,
+                        # Блокируем, если не выбрана строка, нет ссылки или система занята
+                        disabled=(len(selected_rows) != 1 or final_reschedule_url == "#" or system_locked),
+                        use_container_width=True
+                    )
                     
                 with btn_col2:
-                    if st.button(
+                    st.link_button(
                         t.get("cancel_booking", "Cancel Booking"),
-                        disabled=(len(selected_rows) != 1 or final_cancel_url == "#"),
-                        use_container_width=True,
-                        key="cancel_btn"
-                    ):
-                        # Проверяем статус системы перед переходом
-                        try:
-                            status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
-                            is_locked = status_resp.json().get("locked", False) if status_resp.status_code == 200 else False
-                        except Exception:
-                            is_locked = False
-                        
-                        if is_locked:
-                            st.warning(t["system_locked_message"])
-                        else:
-                            # Редирект через JS
-                            st.markdown(
-                                f'<script>window.open("{final_cancel_url}", "_blank");</script>',
-                                unsafe_allow_html=True
-                            )
-                            st.stop()
+                        url=final_cancel_url,
+                        # Блокируем, если не выбрана строка, нет ссылки или система занята
+                        disabled=(len(selected_rows) != 1 or final_cancel_url == "#" or system_locked),
+                        use_container_width=True
+                    )
                     
     except requests.RequestException as e:
         st.error(f"Could not load bookings: {e}")    
@@ -980,7 +967,7 @@ else:
                 _poll_status()
             else:
                 # Резервный вариант для старых версий Streamlit
-                with st.spinner("Пожалуйста, подождите..."):
+                with st.spinner("Please wait..."):
                     time.sleep(2)
                     st.rerun()
 
@@ -1964,7 +1951,7 @@ else:
                     "slotMinTime": "09:00:00",
                     "slotMaxTime": "18:00:00",
                     "slotDuration": "00:30:00",
-                    "snapDuration": "00:30:00",
+                    "snapDuration": "00:30:00",                   
                     # Первый день недели: 1 для РФ (Пн), 0 для США (Вс)
                     "firstDay": 1 if cal_locale == "ru" else 0, 
                     # Когда закоменчено можно листать в прошлое
@@ -2049,29 +2036,29 @@ else:
 
                 for slot in booked_slots:
                     app_id = slot.get("application_id", "")
-                    
-                    # 3. Просто берем закрепленный цвет из словаря
-                    slot_color = app_color_map.get(app_id, "#cccccc") # серый по умолчанию
-
+                    slot_color = app_color_map.get(app_id, "#cccccc")
                     is_selected = (selected_booking_uid == slot["booking_uid"])
                     
-                    # Ищем имя кандидата и позицию по ID заявки
                     app = next((a for a in all_applications if a["id"] == app_id), None)
                     if app:
                         candidate_name = f"{app['full_name']} ({app['position_name']})"
                     else:
                         candidate_name = booked_title
 
-                    # Pass the slot natively as ONE block (no more 30-min chunks)
-                    # Форматируем время для подсказки (в локальном времени)
                     tz_offset = st.session_state.get("user_tz_offset", 0.0)
                     try:
                         s_dt = datetime.fromisoformat(slot["start"].replace("Z", "+00:00")).replace(tzinfo=None)
                         e_dt = datetime.fromisoformat(slot["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+                        
+                        # Переводим в локальное время
                         s_local = s_dt + timedelta(hours=tz_offset)
                         e_local = e_dt + timedelta(hours=tz_offset)
                         
-                        # Берем данные для красивой подсказки
+                        # Форматируем строку БЕЗ Z, чтобы календарь нарисовал ровно это время
+                        start_local_str = s_local.strftime("%Y-%m-%dT%H:%M:%S")
+
+                        end_local_str = e_local.strftime("%Y-%m-%dT%H:%M:%S")
+                        
                         if app:
                             t_name = app["full_name"]
                             t_pos = app.get("position_name", "No position")
@@ -2080,25 +2067,23 @@ else:
                             t_pos = ""
                             
                         time_str = f"{s_local.strftime('%H:%M')} - {e_local.strftime('%H:%M, %d.%m.%Y')}"
-                        
-                        # Собираем все в одну подсказку с переносами строк (\n)
                         tooltip_text = f"{t_name}\n{t_pos}\n{time_str}"
                     except Exception:
                         tooltip_text = candidate_name
+                        start_local_str = slot["start"]
+                        end_local_str = slot["end"]
 
                     event = {
                         "id": slot["booking_uid"],
                         "title": candidate_name,
-                        "start": slot["start"],
-                        "end": slot["end"],
+                        "start": start_local_str,  # <-- Теперь тут локальное время без Z
+                        "end": end_local_str,      # <-- Теперь тут локальное время без Z
                         "backgroundColor": slot_color,
-                        "tooltip": tooltip_text,  # <-- Всплывающая подсказка
+                        "tooltip": tooltip_text,
                     }
 
                     if is_selected:
-                        # Assign a CSS class (FullCalendar will use this to apply the thick border)
                         event["classNames"] = ["selected-booking-frame"]
-                        # Убрали backgroundColor и textColor, чтобы фон остался прежним
                         
                     calendar_events.append(event)
 
@@ -2123,54 +2108,69 @@ else:
                     if st.session_state.pop("ignore_next_calendar_callback", False):
                         pass  # Игнорируем старый клик
                     else:
-                        sel = calendar_result["select"] # <-- ВОЗВРАЩАЕМ
-                        sel_start = datetime.fromisoformat(sel["start"].replace("Z", "+00:00")) # <-- ВОЗВРАЩАЕМ
+                        sel = calendar_result["select"]
                         
-                        if sel_start.replace(tzinfo=None) < datetime.utcnow():
+                        # Парсим время, которое прислал календарь (локальное)
+                        sel_start_local = datetime.fromisoformat(sel["start"].replace("Z", "+00:00"))
+                        sel_end_local = datetime.fromisoformat(sel["end"].replace("Z", "+00:00"))
+                        
+                        tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                        
+                        # Переводим ЛОКАЛЬНОЕ время обратно в UTC для сохранения и проверки
+                        if sel_start_local.tzinfo is not None:
+                            sel_start_utc = sel_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+                            sel_end_utc = sel_end_local.astimezone(timezone.utc).replace(tzinfo=None)
+                        else:
+                            sel_start_utc = sel_start_local - timedelta(hours=tz_offset)
+                            sel_end_utc = sel_end_local - timedelta(hours=tz_offset)
+
+                        # Проверка "в прошлом" (сравниваем чистый UTC)
+                        if sel_start_utc < datetime.utcnow():
                             st.warning(t["slot_in_past"])
                         else:
                             st.session_state.pop("selected_booking_uid", None)
                             st.session_state.pop("selected_booking_start", None)
                             st.session_state.pop("selected_booking_end", None)
 
+                            # Форматируем в строку UTC для сохранения (с буквой Z на конце)
+                            start_iso = sel_start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                            end_iso = sel_end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
                             if (
-                                st.session_state.get("booking_start") != sel["start"]
-                                or st.session_state.get("booking_end") != sel["end"]
+                                st.session_state.get("booking_start") != start_iso
+                                or st.session_state.get("booking_end") != end_iso
                             ):
-                                st.session_state["booking_start"] = sel["start"]
-                                st.session_state["booking_end"] = sel["end"]
+                                st.session_state["booking_start"] = start_iso
+                                st.session_state["booking_end"] = end_iso
                                 st.rerun()
 
                 # ----- Handle single-click -----
                 if calendar_result and calendar_result.get("callback") == "dateClick":
-                    # ДОБАВИТЬ ПРОВЕРКУ:
                     if st.session_state.pop("ignore_next_calendar_callback", False):
-                        pass  # Игнорируем старый клик
+                        pass
                     else:
                         date_str = calendar_result["dateClick"]["date"]
                         try:
-                            start_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                            if start_dt.replace(tzinfo=None) < datetime.utcnow():
+                            # Парсим локальное время (с Z или без)
+                            start_dt_local = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            
+                            tz_offset = st.session_state.get("user_tz_offset", 0.0)
+                            
+                            # Переводим ЛОКАЛЬНОЕ время обратно в UTC
+                            if start_dt_local.tzinfo is not None:
+                                start_dt_utc = start_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+                            else:
+                                start_dt_utc = start_dt_local - timedelta(hours=tz_offset)
+                                
+                            end_dt_utc = start_dt_utc + timedelta(minutes=30)
+
+                            # Проверка "в прошлом"
+                            if start_dt_utc < datetime.utcnow():
                                 st.warning(t["slot_in_past"])
                                 st.stop()
 
-                            end_dt = start_dt + timedelta(minutes=30)
-                            
-                            # Convert local time to UTC using the existing offset
-                            tz_offset = st.session_state.get("user_tz_offset", 0.0)
-                            
-                            if start_dt.tzinfo is None:
-                                start_utc = start_dt - timedelta(hours=tz_offset)
-                            else:
-                                start_utc = start_dt.replace(tzinfo=None)
-                                
-                            if end_dt.tzinfo is None:
-                                end_utc = end_dt - timedelta(hours=tz_offset)
-                            else:
-                                end_utc = end_dt.replace(tzinfo=None)
-
-                            start_iso = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                            end_iso = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                            start_iso = start_dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                            end_iso = end_dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
                             overlaps_booked = any(
                                 start_iso < slot["end"] and end_iso > slot["start"]
@@ -2180,7 +2180,6 @@ else:
                             if overlaps_booked:
                                 st.info(t["slot_already_booked"])
                             else:
-
                                 st.session_state.pop("selected_booking_uid", None)
                                 st.session_state.pop("selected_booking_start", None)
                                 st.session_state.pop("selected_booking_end", None)
@@ -2200,20 +2199,20 @@ else:
                     clicked_event = calendar_result["eventClick"]["event"]
                     booking_uid = clicked_event.get("id")
 
-                    # Guard: only act if this is a *new* booking selection.
-                    # Prevents the cached eventClick payload from looping st.rerun().
                     if booking_uid and st.session_state.get("selected_booking_uid") != booking_uid:
                         st.session_state["selected_booking_uid"] = booking_uid
-
-                        # СОХРАНЯЕМ ИМЯ ИЗ КАЛЕНДАРЯ
                         st.session_state["selected_booking_name"] = clicked_event.get("title", "Candidate")                        
-
-                        # Clear any previously selected free slot
                         st.session_state.pop("booking_start", None)
                         st.session_state.pop("booking_end", None)
 
-                        st.session_state["selected_booking_start"] = clicked_event.get("start")
-                        st.session_state["selected_booking_end"] = clicked_event.get("end")
+                        # ИСПРАВЛЕНИЕ: Берем оригинальное UTC время из booked_slots, а не локальное из календаря
+                        original_slot = next((s for s in booked_slots if s["booking_uid"] == booking_uid), None)
+                        if original_slot:
+                            st.session_state["selected_booking_start"] = original_slot["start"]
+                            st.session_state["selected_booking_end"] = original_slot["end"]
+                        else:
+                            st.session_state["selected_booking_start"] = clicked_event.get("start")
+                            st.session_state["selected_booking_end"] = clicked_event.get("end")
 
                         st.rerun()
 

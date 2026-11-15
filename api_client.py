@@ -27,7 +27,7 @@ class ApiClient:
         response = requests.patch(
             f"{self.base_url}/api/applications/{app_id}/email",
             json={"email": new_email, "expected_email": expected_email},
-            timeout=20
+            timeout=10
         )
         if response.status_code == 200:
             return response.json()
@@ -70,7 +70,7 @@ class ApiClient:
         response = requests.post(
             f"{self.base_url}/api/positions",
             json={"pos_name": pos_name, "is_free": True},
-            timeout=5
+            timeout=10
         )
         if response.status_code == 201:
             return response.json()

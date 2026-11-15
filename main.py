@@ -885,8 +885,8 @@ def update_application_status(
         )
 
     try:
-
-        time.sleep(5) # <-- Искусственная задержка
+        # Таймаут для тестирования на несколько пользователей
+        # time.sleep(5) # <-- Искусственная задержка
         # 1. Find application
         application = db.query(Application).filter(
             Application.id == app_id
@@ -1026,7 +1026,8 @@ def update_application_email(
     db: Session = Depends(get_db)
 ):
     try:
-        time.sleep(5) # <-- Искусственная задержка        
+        # Таймаут для тестирования на несколько пользователей
+        # time.sleep(5) # <-- Искусственная задержка        
         application = db.query(Application).filter(
             Application.id == app_id
         ).first()
@@ -1585,7 +1586,7 @@ def reset_demo_data(
     try:
 
         # Таймаут для тестирования на несколько пользователей
-        time.sleep(15)  
+        # time.sleep(15)  
 
 
         # 0a. Cancel all confirmed bookings...
