@@ -5,7 +5,7 @@ import uuid
 import logging
 import random
 
-
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from datetime import date, datetime, timedelta
 from uuid import UUID
@@ -21,6 +21,7 @@ from email.message import EmailMessage
 import json
 
 from dotenv import load_dotenv
+load_dotenv() 
 
 from fastapi import (
     FastAPI,
@@ -55,6 +56,24 @@ import hmac
 import hashlib
 
 import time
+
+from fastapi.security import APIKeyHeader
+from fastapi import Security
+
+# Читаем ключ из .env
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "super_secret_hiring_key_04061994")
+
+# Определяем, что ключ будет передаваться в заголовке X-API-Key
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# Функция-проверка
+def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key != INTERNAL_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key"
+        )
+    return api_key
 
 # Глобальный флаг блокировки (по аналогии с монопольным режимом в 1С)
 SYSTEM_LOCKED = False
@@ -161,41 +180,6 @@ def cancel_calcom_booking(booking_uid: str) -> bool:
         logging.exception(f"Cal.com cancel request error: {e}")
         return False
 
-
-# def cancel_calcom_booking(booking_uid: str) -> bool:
-#     """
-#     Отменяет бронь в Cal.com.
-#     Возвращает True при успехе (200/204), иначе False.
-#     """
-#     if not CALCOM_API_KEY:
-#         logging.warning("CALCOM_API_KEY missing, cannot cancel booking.")
-#         return False
-
-#     url = f"https://api.cal.com/v2/bookings/{booking_uid}/cancel"
-#     headers = {
-#         "Authorization":   f"Bearer {CALCOM_API_KEY}",
-#         "Content-Type":    "application/json",
-#         "cal-api-version": "2024-08-13",
-#     }
-#     body = {
-#         "cancellationReason": "Demo reset",
-#         # cancelSubsequentBookings только для повторяющихся броней,
-#         # для обычной интервью-брони оставляем False или не передаём.
-#     }
-
-#     try:
-#         r = requests.post(url, json=body, headers=headers, timeout=10)
-#         if r.status_code in (200, 204):
-#             logging.info(f"Cal.com booking {booking_uid} cancelled.")
-#             return True
-#         logging.warning(
-#             f"Cal.com cancel failed for {booking_uid}: "
-#             f"{r.status_code} {r.text[:200]}"
-#         )
-#         return False
-#     except requests.RequestException as e:
-#         logging.exception(f"Cal.com cancel request error: {e}")
-#         return False
 
 def prune_old_interviews(db: Session, keep_last: int = 20):
     """
@@ -385,8 +369,6 @@ APPLICATION_DEMO_COLLECTION = {
 # CONFIGURATION
 # ==========================================
 
-load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 
 DATABASE_URL = os.getenv(
@@ -426,6 +408,14 @@ app = FastAPI(
     version="1.1.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Для пет-проекта можно разрешить все. Для продакшена лучше указать точный URL Streamlit-приложения.
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Монопольный режим если много пользователей
 @app.middleware("http")
 async def system_lock_middleware(request: Request, call_next):
@@ -446,7 +436,11 @@ async def system_lock_middleware(request: Request, call_next):
     return response
 
 # Запрос "Есть ли блокировка?"
-@app.get("/api/system-status")
+@app.get(
+        "/api/system-status", 
+        dependencies=[Depends(verify_api_key)]
+        )
+
 def get_system_status():
     """Возвращает статус системы: заблокирована или нет.
     Returns status: blocked or not"""
@@ -637,7 +631,10 @@ class InterviewRequest(BaseModel):
 # API: Webhook cal.com
 # ==========================================
 
-@app.post("/api/webhooks/calcom")
+@app.post(
+        "/api/webhooks/calcom"
+        )
+
 async def calcom_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Принимает события от Cal.com.
@@ -722,7 +719,8 @@ async def calcom_webhook(request: Request, db: Session = Depends(get_db)):
 
 @app.post(
     "/api/applications",
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_key)]
 )
 
 def create_application(
@@ -845,7 +843,8 @@ def create_application(
 
 @app.patch(
     "/api/applications/{app_id}/status",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_key)]
 )
 def update_application_status(
     app_id: str,
@@ -1018,7 +1017,8 @@ def update_application_status(
 
 @app.patch(
     "/api/applications/{app_id}/email",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_key)]
 )
 def update_application_email(
     app_id: str,
@@ -1096,7 +1096,8 @@ def update_application_email(
 
 @app.post(
     "/api/interviews",
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_key)]
 )
 def create_interview(
     request: InterviewRequest,
@@ -1231,7 +1232,8 @@ def create_interview(
 
 @app.get(
     "/api/interviews/booked-slots",
-    response_model=List[BookedSlotResponse]
+    response_model=List[BookedSlotResponse],
+    dependencies=[Depends(verify_api_key)]
 )
 def get_booked_slots(
     db: Session = Depends(get_db)
@@ -1267,7 +1269,10 @@ def get_booked_slots(
     ]
 
 
-@app.post("/api/interviews/{booking_uid}/cancel")
+@app.post(
+    "/api/interviews/{booking_uid}/cancel",
+    dependencies=[Depends(verify_api_key)]
+        )
 def cancel_interview(
     booking_uid: str,
     db: Session = Depends(get_db)
@@ -1324,7 +1329,8 @@ def cancel_interview(
 
 @app.get(
     "/api/interviews",
-    response_model=List[InterviewResponse]
+    response_model=List[InterviewResponse],
+    dependencies=[Depends(verify_api_key)]
 )
 def get_interviews(
     status_filter: str = "confirmed",
@@ -1341,7 +1347,8 @@ def get_interviews(
 
 @app.post(
     "/api/initialize-demo",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_key)]
 )
 def initialize_demo_data(
     db: Session = Depends(get_db)
@@ -1542,7 +1549,8 @@ def generate_demo_interviews(db: Session, applications: list, tz_offset: float =
 
 @app.post(
     "/api/reset-demo",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_key)]
 )
 def reset_demo_data(
     db: Session = Depends(get_db),
@@ -1735,7 +1743,10 @@ def reset_demo_data(
     finally:
         SYSTEM_LOCKED = False
 
-@app.get("/api/demo-application")
+@app.get(
+        "/api/demo-application",
+        dependencies=[Depends(verify_api_key)]
+        )
 def get_demo_application(lang: str = "en"):
 
     if lang not in APPLICATION_DEMO_COLLECTION:
@@ -1752,7 +1763,8 @@ def get_demo_application(lang: str = "en"):
 
 @app.get(
     "/api/positions",
-    response_model=List[PositionResponse]
+    response_model=List[PositionResponse],
+    dependencies=[Depends(verify_api_key)]
 )
 def get_positions(
     db: Session = Depends(get_db)
@@ -1772,7 +1784,8 @@ def get_positions(
 
 
 @app.post("/api/positions", 
-          status_code=status.HTTP_201_CREATED
+          status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_key)]
           )
 def create_position(
     position_data: PositionCreate,
@@ -1803,8 +1816,10 @@ def create_position(
 
 @app.get(
     "/api/applications",
-    response_model=List[ApplicationResponse]
+    response_model=List[ApplicationResponse],
+    dependencies=[Depends(verify_api_key)]
 )
+
 def get_applications(
     position: str = None,
     full_name: str = None,

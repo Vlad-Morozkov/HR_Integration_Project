@@ -1,48 +1,73 @@
 import streamlit as st
+
+# 1. САМАЯ ПЕРВАЯ КОМАНДА STREAMLIT (обязательно до всех остальных st.*)
+st.set_page_config(
+    page_title="HR Hiring System",
+    layout="wide"
+)
+
+import os
 import requests
 import re
 import pandas as pd
-
-from timezone_component import detect_timezone
-
-# added streamlit_calendar
-from streamlit_calendar import calendar
-
-from datetime import date, datetime, timedelta, timezone
-
 import time
 import html
 import json
+from datetime import date, datetime, timedelta, timezone
+from dotenv import load_dotenv
+
 import streamlit.components.v1 as components
+from streamlit_calendar import calendar
+from timezone_component import detect_timezone
+
+# 2. Загружаем .env локально
+load_dotenv()
 
 from api_client import ApiClient, ApiConflictError, ApiLockedError
-
-# Local
-API_URL = "http://127.0.0.1:8000" 
-
-# Prod
-# API_URL = "https://hr-integration-project-swart.vercel.app"
-
-api = ApiClient(API_URL)
-
 from validators import (
     normalize_email,
     is_valid_email,
     is_valid_birth_date,
     has_email_duplicate,
 )
-
 from translations import TEXTS
 
-# 1. САМАЯ ПЕРВАЯ КОМАНДА STREAMLIT
-st.set_page_config(
-    page_title="HR Hiring System",
-    layout="wide"
-)
 
-# Detect user's browser timezone
+# Prod API_URL = https://hr-integration-project-swart.vercel.app
+# Local API_URL = http://127.0.0.1:8000
+
+# 3. Умная инициализация URL и Ключа (Облако -> .env -> Дефолт)
+try:
+    API_URL = st.secrets["API_URL"]
+    API_KEY = st.secrets["INTERNAL_API_KEY"]
+except (KeyError, FileNotFoundError):
+    API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+    API_KEY = os.getenv("INTERNAL_API_KEY", "super_secret_hiring_key_04061994")
+
+HEADERS = {"X-API-Key": API_KEY}
+api = ApiClient(API_URL)
+
+# 4. Кэшируемые загрузки
+@st.cache_data(ttl=15, show_spinner=False)
+def load_all_applications(api_url: str) -> list:
+    response = requests.get(f"{api_url}/api/applications", headers=HEADERS, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_positions(api_url: str) -> list:
+    response = requests.get(f"{api_url}/api/positions", headers=HEADERS, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_booked_slots(api_url: str) -> list:
+    response = requests.get(f"{api_url}/api/interviews/booked-slots", headers=HEADERS, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+# 5. Определение часового пояса
 timezone_data = detect_timezone()
-
 if timezone_data:
     st.session_state["user_tz_name"] = timezone_data["timezone"]
     st.session_state["user_tz_offset"] = timezone_data["offset"] / 60.0
@@ -188,32 +213,6 @@ def show_duplicate_email_notice(
 
     components.html(html_content, height=110)
 
-
-# =========================================================
-# КЭШИРУЕМЫЕ ЗАГРУЗКИ (Способ Б)
-# =========================================================
-
-@st.cache_data(ttl=15, show_spinner=False)
-def load_all_applications(api_url: str) -> list:
-    """Все заявки. Кэш живет 15 секунд."""
-    response = requests.get(f"{api_url}/api/applications", timeout=10)
-    response.raise_for_status()
-    return response.json()
-
-@st.cache_data(ttl=30, show_spinner=False)
-def load_positions(api_url: str) -> list:
-    """Справочник должностей. Кэш живет 30 секунд."""
-    response = requests.get(f"{api_url}/api/positions", timeout=10)
-    response.raise_for_status()
-    return response.json()
-
-@st.cache_data(ttl=15, show_spinner=False)
-def load_booked_slots(api_url: str) -> list:
-    """Занятые слоты собеседований. Кэш живет 15 секунд."""
-    response = requests.get(f"{api_url}/api/interviews/booked-slots", timeout=10)
-    response.raise_for_status()
-    return response.json()
-
 # =========================================================
 # LANGUAGE
 # =========================================================
@@ -342,6 +341,9 @@ if mode == t["candidate"]:
 
     st.header(t["candidate"])
 
+    # st.sidebar.write(f"DEBUG Key: {repr(API_KEY)}")
+    # st.sidebar.write(f"DEBUG URL: {API_URL}")
+
     form_version = st.session_state["candidate_form_version"]
 
     # -----------------------------------------------------
@@ -386,6 +388,7 @@ if mode == t["candidate"]:
         response = requests.get(
             f"{API_URL}/api/demo-application",
             params={"lang": lang},
+            headers=HEADERS,  # <--- ДОБАВИТЬ
             timeout=5
         )
 
@@ -431,6 +434,7 @@ if mode == t["candidate"]:
                 try:
                     init_response = requests.post(
                         f"{API_URL}/api/initialize-demo",
+                        headers=HEADERS,  # <--- ДОБАВИТЬ
                         timeout=15
                     )
 
@@ -632,6 +636,7 @@ if mode == t["candidate"]:
                         response = requests.post(
                             f"{API_URL}/api/applications",
                             json=application_data,
+                            headers=HEADERS,  # <--- ДОБАВИТЬ
                             timeout=5
                         )
 
@@ -809,7 +814,11 @@ if mode == t["candidate"]:
                 # Проверяем статус блокировки на сервере (один раз для обеих кнопок)
                 system_locked = False
                 try:
-                    status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                    status_resp = requests.get(
+                        f"{API_URL}/api/system-status", 
+                        headers=HEADERS,  # <--- ДОБАВИТЬ
+                        timeout=2
+                    )
                     if status_resp.status_code == 200:
                         system_locked = status_resp.json().get("locked", False)
                 except Exception:
@@ -932,6 +941,7 @@ else:
                 requests.post(
                     f"{API_URL}/api/reset-demo",
                     params={"tz_offset": tz_offset},
+                    headers=HEADERS,  # <--- ДОБАВИТЬ
                     timeout=1
                 )
             except requests.Timeout:
@@ -947,7 +957,11 @@ else:
                 @st.fragment(run_every=2)
                 def _poll_status():
                     try:
-                        status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                        status_resp = requests.get(
+                            f"{API_URL}/api/system-status", 
+                            headers=HEADERS,  # <--- ДОБАВИТЬ
+                            timeout=2
+                        )
                         is_locked = status_resp.json().get("locked", False)
                     except Exception:
                         is_locked = True # Если сервер не отвечает, считаем, что занят
@@ -1836,6 +1850,7 @@ else:
                     for b in bookings_list:
                         requests.post(
                             f"{API_URL}/api/interviews/{b['booking_uid']}/cancel",
+                            headers=HEADERS,  # <--- ДОБАВИТЬ
                             timeout=10
                         )
                     del st.session_state["bookings_to_cancel"]
@@ -2234,6 +2249,7 @@ else:
 
                             cancel_response = requests.post(
                                 f"{API_URL}/api/interviews/{booking_uid}/cancel",
+                                headers=HEADERS,  # <--- ДОБАВИТЬ
                                 timeout=15
                             )
 
@@ -2313,6 +2329,7 @@ else:
                         resp = requests.post(
                             f"{API_URL}/api/interviews",
                             json=interview_payload,
+                            headers=HEADERS,  # <--- ДОБАВИТЬ
                             timeout=15,
                         )
                     except requests.RequestException as e:
@@ -2621,21 +2638,6 @@ else:
         except Exception as e:
             st.session_state["position_error_message"] = str(e)
 
-            if response.status_code == 201:
-                load_positions.clear() # <-- Очищаем кэш
-                st.session_state["position_added_message"] = True
-                st.session_state["new_position_input"] = ""   # Очищаем поле
-            elif response.status_code == 503:
-                # <-- ДОБАВИТЬ ЭТОТ БЛОК
-                st.session_state["position_error_message"] = t["system_locked_message"]
-            else:
-                st.session_state["position_error_message"] = (
-                    f'{t["position_add_error"]} '
-                    f'Error code: {response.status_code}.'
-                )
-        except requests.RequestException:
-            st.session_state["position_error_message"] = t["request_failed"]
-
     # 2. Текстовое поле с фиксированным ключом
     st.text_input(
         t["new_position"],
@@ -2662,59 +2664,3 @@ else:
 
     if st.session_state.pop("demo_loaded_message", False):
         st.success(t["demo_loaded"])
-
-    # # -----------------------------------------------------
-    # # Reset demo
-    # # -----------------------------------------------------
-
-    # is_demo_loading = st.query_params.get("demo_loading") == "1"
-
-    # if is_demo_loading:
-    #     st.info(t["DemoData&BookingGeneration"])
-
-    # if st.button(t["reset_demo"], disabled=is_demo_loading):
-    #     st.query_params["demo_loading"] = "1"
-    #     st.rerun()
-
-    # if is_demo_loading and not st.session_state.get("demo_post_sent"):
-    #     st.session_state["demo_post_sent"] = True
-        
-    #     tz_offset = st.session_state.get("user_tz_offset", 0.0)
-        
-    #     try:
-    #         with st.spinner(t["DemoData&BookingGeneration"]):
-    #             response = requests.post(
-    #                 f"{API_URL}/api/reset-demo",
-    #                 params={"tz_offset": tz_offset},
-    #                 timeout=90
-    #             )
-                
-    #         if response.status_code == 200:
-    #             load_all_applications.clear()
-    #             load_positions.clear()
-    #             load_booked_slots.clear()
-    #             st.session_state["demo_loaded_message"] = True
-    #         elif response.status_code == 503:
-    #             # <-- ЛОВИМ МОНОПОЛЬНЫЙ РЕЖИМ
-    #             try:
-    #                 detail = response.json().get("detail", "Сброс уже выполняется другим пользователем.")
-    #             except Exception:
-    #                 detail = "Сброс уже выполняется другим пользователем."
-    #             st.error(f"⚠️ {detail}")
-    #         else:
-    #             st.error(f'{t["demo_load_error"]} Error code: {response.status_code}.')
-                
-    #     except requests.RequestException as e:
-    #         # Если сервер недоступен или таймаут — показываем ошибку
-    #         st.error(f'{t["request_failed"]}: {e}')
-            
-    #     finally:
-    #         # В ЛЮБОМ СЛУЧАЕ (успех или ошибка) очищаем флаги, 
-    #         # чтобы кнопка разблокировалась и пользователь мог попробовать снова
-    #         st.session_state.pop("demo_post_sent", None)
-    #         st.query_params.pop("demo_loading", None)
-            
-    #     st.rerun()
-
-    # if st.session_state.pop("demo_loaded_message", False):
-    #     st.success(t["demo_loaded"])
