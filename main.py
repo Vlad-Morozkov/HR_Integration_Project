@@ -5,6 +5,8 @@ import uuid
 import logging
 import random
 
+
+from fastapi.responses import JSONResponse
 from datetime import date, datetime, timedelta
 from uuid import UUID
 from typing import List
@@ -51,6 +53,11 @@ from datetime import timezone
 
 import hmac
 import hashlib
+
+import time
+
+# Глобальный флаг блокировки (по аналогии с монопольным режимом в 1С)
+SYSTEM_LOCKED = False
 
 CALCOM_WEBHOOK_SECRET = os.getenv("CALCOM_WEBHOOK_SECRET")
 
@@ -419,6 +426,31 @@ app = FastAPI(
     version="1.1.0"
 )
 
+# Монопольный режим если много пользователей
+@app.middleware("http")
+async def system_lock_middleware(request: Request, call_next):
+    global SYSTEM_LOCKED
+    
+    # Если система заблокирована и это запрос на изменение данных (POST, PATCH, DELETE)
+    if SYSTEM_LOCKED and request.method in ["POST", "PUT", "PATCH", "DELETE"]:
+        # Разрешаем только сам эндпоинт сброса, чтобы он не блокировал сам себя
+        if request.url.path != "/api/reset-demo":
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Система обновляется. Другой пользователь выполняет загрузку демо-данных. Пожалуйста, подождите 1 минуту."
+                }
+            )
+            
+    response = await call_next(request)
+    return response
+
+# Запрос "Есть ли блокировка?"
+@app.get("/api/system-status")
+def get_system_status():
+    """Возвращает статус системы: заблокирована или нет.
+    Returns status: blocked or not"""
+    return {"locked": SYSTEM_LOCKED}
 
 # ==========================================
 # DATABASE DEPENDENCY
@@ -1500,6 +1532,19 @@ def reset_demo_data(
     db: Session = Depends(get_db),
     tz_offset: float = 0.0   
 ):
+    # <--- ДОБАВИТЬ: объявляем, что будем менять глобальную переменную
+    global SYSTEM_LOCKED
+
+    # <--- ДОБАВИТЬ: проверка, не идет ли уже сброс другим пользователем
+    if SYSTEM_LOCKED:
+        raise HTTPException(
+            status_code=503, 
+            detail="Сброс данных уже выполняется. Пожалуйста, подождите."
+        )
+
+    # <--- ДОБАВИТЬ: ВКЛЮЧАЕМ МОНОПОЛЬНЫЙ РЕЖИМ
+    SYSTEM_LOCKED = True
+
 
     """
     0.
@@ -1523,8 +1568,12 @@ def reset_demo_data(
     """
 
     try:
+        
+        # Таймаут для тестирования на несколько пользователей
+        # time.sleep(15)  # <--- ДОБАВЬ ВОТ ЭТУ СТРОКУ СЮДА
 
-        # 0a. Cancel all confirmed bookings in Cal.com BEFORE deleting locally
+
+        # 0a. Cancel all confirmed bookings...
         confirmed_interviews = db.query(Interview).filter(
             Interview.status == "confirmed"
         ).all()
@@ -1665,6 +1714,10 @@ def reset_demo_data(
             status_code=500,
             detail="Internal server error during demo reset."
         )
+        
+    # <--- ДОБАВИТЬ: ВЫКЛЮЧАЕМ МОНОПОЛЬНЫЙ РЕЖИМ (сработает в любом случае)
+    finally:
+        SYSTEM_LOCKED = False
 
 @app.get("/api/demo-application")
 def get_demo_application(lang: str = "en"):

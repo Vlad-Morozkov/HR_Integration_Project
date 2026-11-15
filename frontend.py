@@ -334,7 +334,8 @@ TEXTS = {
         # Buttons
 
         "reset_demo":            "Reset & Load Demo Data",
-
+        "system_locked_message": 
+                "The system is updating. Another user is currently loading data. Please wait 1-2 minutes.",
         #----------
         # Notiffications
         #----------
@@ -509,6 +510,8 @@ TEXTS = {
         # Buttons
 
         "reset_demo":            "Сбросить и загрузить Demo-данные",
+        "system_locked_message": 
+            "Система обновляется. Другой пользователь выполняет загрузку данных. Пожалуйста, подождите 1-2 минуты.",
 
 
         #----------
@@ -999,15 +1002,13 @@ if mode == t["candidate"]:
                             st.rerun()
 
                         elif response.status_code == 409:
-
                             st.error(t["duplicate_application"])
-
                         elif response.status_code == 422:
-
                             st.error(t["submit_error"])
-
+                        elif response.status_code == 503:
+                            # <-- ДОБАВИТЬ ЭТО
+                            st.error(t["system_locked_message"])
                         else:
-
                             st.error(
                                 f'{t["submit_error"]} '
                                 f'Error code: {response.status_code}.'
@@ -1128,8 +1129,10 @@ if mode == t["candidate"]:
                 else:
                     selected_rows = [row for row in edited_df if row.get(select_col) is True]
 
+                # Инициализируем значения по умолчанию
                 final_cancel_url = "#"
                 final_reschedule_url = "#"
+                system_locked = False  # <-- Значение по умолчанию (переменная существует ВСЕГДА)
 
                 if len(selected_rows) == 1:
                     final_cancel_url = selected_rows[0].get("cancel_url", "#")
@@ -1137,24 +1140,67 @@ if mode == t["candidate"]:
                 elif len(selected_rows) > 1:
                     st.warning(t.get("select_only_one", "Please select only one booking at a time."))
 
+                # Проверяем статус блокировки на сервере
+                try:
+                    status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                    if status_resp.status_code == 200:
+                        system_locked = status_resp.json().get("locked", False)
+                except Exception:
+                    system_locked = False
+
+                if system_locked:
+                    st.warning(t["system_locked_message"])
+
                 # Buttons under the table
                 btn_col1, btn_col2 = st.columns(2)
                 
                 with btn_col1:
-                    st.link_button(
+                    if st.button(
                         t.get("reschedule_booking", "Reschedule"),
-                        url=final_reschedule_url,
                         disabled=(len(selected_rows) != 1 or final_reschedule_url == "#"),
-                        width="stretch"
-                    )
+                        use_container_width=True,
+                        key="reschedule_btn"
+                    ):
+                        # Проверяем статус системы перед переходом
+                        try:
+                            status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                            is_locked = status_resp.json().get("locked", False) if status_resp.status_code == 200 else False
+                        except Exception:
+                            is_locked = False
+                        
+                        if is_locked:
+                            st.warning(t["system_locked_message"])
+                        else:
+                            # Редирект через JS
+                            st.markdown(
+                                f'<script>window.open("{final_reschedule_url}", "_blank");</script>',
+                                unsafe_allow_html=True
+                            )
+                            st.stop()
                     
                 with btn_col2:
-                    st.link_button(
+                    if st.button(
                         t.get("cancel_booking", "Cancel Booking"),
-                        url=final_cancel_url,
                         disabled=(len(selected_rows) != 1 or final_cancel_url == "#"),
-                        width="stretch"
-                    )
+                        use_container_width=True,
+                        key="cancel_btn"
+                    ):
+                        # Проверяем статус системы перед переходом
+                        try:
+                            status_resp = requests.get(f"{API_URL}/api/system-status", timeout=2)
+                            is_locked = status_resp.json().get("locked", False) if status_resp.status_code == 200 else False
+                        except Exception:
+                            is_locked = False
+                        
+                        if is_locked:
+                            st.warning(t["system_locked_message"])
+                        else:
+                            # Редирект через JS
+                            st.markdown(
+                                f'<script>window.open("{final_cancel_url}", "_blank");</script>',
+                                unsafe_allow_html=True
+                            )
+                            st.stop()
                     
     except requests.RequestException as e:
         st.error(f"Could not load bookings: {e}")    
@@ -1191,6 +1237,32 @@ else:
                 "name": candidate_name,
                 "bookings": bookings,
             }
+
+    def _handle_stale_data_or_lock():
+        """
+        Вызывается, когда данные на сервере изменились (другой пользователь сделал сброс),
+        или когда система заблокирована (монопольный режим).
+        Принудительно сбрасывает интерфейс, чтобы HR не нанял "фантомного" кандидата.
+        """
+        # 1. Полностью очищаем кэш, чтобы при следующем рендере скачались новые данные
+        load_all_applications.clear()
+        load_positions.clear()
+        load_booked_slots.clear()
+
+        # 2. Снимаем выделение со строки таблицы
+        st.session_state["selected_row_app_id"] = None
+        st.session_state["active_application_id"] = None
+
+        # 3. Очищаем выбранные слоты в календаре
+        st.session_state.pop("booking_start", None)
+        st.session_state.pop("booking_end", None)
+        st.session_state.pop("selected_booking_uid", None)
+        st.session_state.pop("selected_booking_start", None)
+        st.session_state.pop("selected_booking_end", None)
+        st.session_state.pop("selected_booking_name", None)
+        
+        # 4. Меняем версию таблицы, чтобы она перерисовалась с нуля
+        st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1            
 
     # -----------------------------------------------------
     # HR Header and Refresh
@@ -2395,15 +2467,16 @@ else:
                             st.rerun()
 
                         else:
-                            try:
-                                detail = cancel_response.json().get(
-                                    "detail",
-                                    cancel_response.text
-                                )
-                            except Exception:
-                                detail = cancel_response.text[:300]
-
-                            st.session_state["current_action_message"] = f"Cancellation failed: {detail}"
+                            if cancel_response.status_code == 503:
+                                st.session_state["current_action_message"] = t["system_locked_message"]
+                                _handle_stale_data_or_lock()
+                            else:
+                                try:
+                                    detail = cancel_response.json().get("detail", cancel_response.text)
+                                except Exception:
+                                    detail = cancel_response.text[:300]
+                                st.session_state["current_action_message"] = f"Cancellation failed: {detail}"
+                            
                             st.session_state["current_action_message_type"] = "error"
                             st.rerun()
 
@@ -2459,17 +2532,24 @@ else:
 
                     if resp.status_code not in (200, 201):
                         try:
-                            detail = resp.json().get("detail", resp.text)
+                            detail = resp.json().get("detail", "")
                         except Exception:
                             detail = resp.text[:300]
 
                         detail_lower = str(detail).lower()
+                        
                         if resp.status_code == 409:
                             st.session_state["current_action_message"] = t["slot_unavailable"]
                         elif resp.status_code == 400 and "past" in detail_lower:
                             st.session_state["current_action_message"] = t["slot_in_past"]
+                        elif resp.status_code == 503:
+                            st.session_state["current_action_message"] = t["system_locked_message"]
+                            _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                        elif resp.status_code == 404:
+                            st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена."
+                            _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
                         else:
-                            st.session_state["current_action_message"] = detail
+                            st.session_state["current_action_message"] = t["system_locked_message"] or f"Error {resp.status_code}"
                             
                         st.session_state["current_action_message_type"] = "error"
                         st.rerun()
@@ -2506,7 +2586,23 @@ else:
                     )
                     st.rerun()
                 else:
-                    st.session_state["current_action_message"] = f'{t["reject_error"]} Error code: {response.status_code}.'
+                    try:
+                        # Пытаемся достать текст ошибки от сервера (наш detail про монопольный режим)
+                        detail = response.json().get("detail", "")
+                    except Exception:
+                        detail = ""
+                        
+                    if response.status_code == 503:
+                        # Если это блокировка базы, показываем её напрямую
+                        st.session_state["current_action_message"] = t["system_locked_message"]
+                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                    elif response.status_code == 404:
+                        # Если заявку удалили (устаревшие данные)
+                        st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена другим пользователем."
+                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                    else:
+                        st.session_state["current_action_message"] = f'... (Error: {response.status_code})'
+                        
                     st.session_state["current_action_message_type"] = "error"
                     st.rerun()
 
@@ -2558,7 +2654,23 @@ else:
                     )
                     st.rerun()
                 else:
-                    st.session_state["current_action_message"] = f'{t["hire_error"]} Error code: {response.status_code}.'
+                    try:
+                        # Пытаемся достать текст ошибки от сервера (наш detail про монопольный режим)
+                        detail = response.json().get("detail", "")
+                    except Exception:
+                        detail = ""
+                        
+                    if response.status_code == 503:
+                        # Если это блокировка базы, показываем её напрямую
+                        st.session_state["current_action_message"] = t["system_locked_message"]
+                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                    elif response.status_code == 404:
+                        # Если заявку удалили (устаревшие данные)
+                        st.session_state["current_action_message"] = "Заявка не найдена. Возможно, база данных была обновлена другим пользователем."
+                        _handle_stale_data_or_lock() # <-- ДОБАВИТЬ ЭТО
+                    else:
+                        st.session_state["current_action_message"] = f'... (Error: {response.status_code})'
+                        
                     st.session_state["current_action_message_type"] = "error"
                     st.rerun()
 
@@ -2567,6 +2679,7 @@ else:
         st.error(
             f'{t["request_failed"]}: {e}'
         )
+
     # =========================================
     # Show current selection (always visible)
     # =========================================
@@ -2720,6 +2833,9 @@ else:
                 load_positions.clear() # <-- Очищаем кэш
                 st.session_state["position_added_message"] = True
                 st.session_state["new_position_input"] = ""   # Очищаем поле
+            elif response.status_code == 503:
+                # <-- ДОБАВИТЬ ЭТОТ БЛОК
+                st.session_state["position_error_message"] = t["system_locked_message"]
             else:
                 st.session_state["position_error_message"] = (
                     f'{t["position_add_error"]} '
@@ -2748,29 +2864,54 @@ else:
     # Reset demo
     # -----------------------------------------------------
 
-    if st.button(t["reset_demo"]):
+    is_demo_loading = st.query_params.get("demo_loading") == "1"
+
+    if is_demo_loading:
+        st.info(t["DemoData&BookingGeneration"])
+
+    if st.button(t["reset_demo"], disabled=is_demo_loading):
+        st.query_params["demo_loading"] = "1"
+        st.rerun()
+
+    if is_demo_loading and not st.session_state.get("demo_post_sent"):
+        st.session_state["demo_post_sent"] = True
         
-        # Get the browser-detected timezone offset
         tz_offset = st.session_state.get("user_tz_offset", 0.0)
         
-        with st.spinner(t["DemoData&BookingGeneration"]):
-            response = requests.post(
-                f"{API_URL}/api/reset-demo",
-                params={"tz_offset": tz_offset},  # <-- Передаем сдвиг
-                timeout=90
-            )
+        try:
+            with st.spinner(t["DemoData&BookingGeneration"]):
+                response = requests.post(
+                    f"{API_URL}/api/reset-demo",
+                    params={"tz_offset": tz_offset},
+                    timeout=90
+                )
+                
+            if response.status_code == 200:
+                load_all_applications.clear()
+                load_positions.clear()
+                load_booked_slots.clear()
+                st.session_state["demo_loaded_message"] = True
+            elif response.status_code == 503:
+                # <-- ЛОВИМ МОНОПОЛЬНЫЙ РЕЖИМ
+                try:
+                    detail = response.json().get("detail", "Сброс уже выполняется другим пользователем.")
+                except Exception:
+                    detail = "Сброс уже выполняется другим пользователем."
+                st.error(f"⚠️ {detail}")
+            else:
+                st.error(f'{t["demo_load_error"]} Error code: {response.status_code}.')
+                
+        except requests.RequestException as e:
+            # Если сервер недоступен или таймаут — показываем ошибку
+            st.error(f'{t["request_failed"]}: {e}')
+            
+        finally:
+            # В ЛЮБОМ СЛУЧАЕ (успех или ошибка) очищаем флаги, 
+            # чтобы кнопка разблокировалась и пользователь мог попробовать снова
+            st.session_state.pop("demo_post_sent", None)
+            st.query_params.pop("demo_loading", None)
+            
+        st.rerun()
 
-        if response.status_code == 200:
-            load_all_applications.clear() # <-- Очищаем кэш
-            load_positions.clear()        # <-- Очищаем кэш
-            load_booked_slots.clear()     # <-- Очищаем кэш
-            st.session_state["demo_loaded_message"] = True
-            st.rerun()
-
-        else:
-            st.error(
-                f'{t["demo_load_error"]} '
-                f'Error code: {response.status_code}.'
-            ) 
     if st.session_state.pop("demo_loaded_message", False):
         st.success(t["demo_loaded"])
