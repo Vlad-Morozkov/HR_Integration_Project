@@ -2161,10 +2161,40 @@ else:
                 # 1 ver - use no 30 min chunks-------------
                 # Build events
                 calendar_events = []
-                color_palette = [
-                                "#e74c3c", "#43abf1", "#08e021", "#f1c40f", "#9b59b6",
-                                "#f07000", "#1abc9c", "#004d9a", "#e84393", "#e75c11b6"
-                                ]
+                color_palette =                color_palette = [
+                    # 1-5: Чередование теплых и холодных (базовые)
+                    "#e74c3c",  # Ярко-красный
+                    "#08b3ca",  # Циан (новый)
+                    "#f07000",  # Оранжевый
+                    "#004d9a",  # Темно-синий
+                    "#f1c40f",  # Желтый
+                    
+                    # 6-10: Пастельные и глубокие тона
+                    "#9b59b6",  # Фиолетовый
+                    "#08e021",  # Неоново-зеленый
+                    "#eb8bb9",  # Розовый
+                    "#2e7d32",  # Темно-зеленый (новый)
+                    "#5abdff",  # Светло-голубой
+                    
+                    # 11-15: Землистые и насыщенные
+                    "#795548",  # Коричневый (новый)
+                    "#1abc9c",  # Бирюзовый
+                    "#ffb300",  # Золотой/Янтарный (новый)
+                    "#ff0084",  # Маджента (темно-розовый) (новый)
+                    "#0F7FA0",  # Оливковый (новый)
+                    
+                    # 16-20: Финальные акценты
+                    "#ff7f50",  # Коралловый (новый)
+                    "#695192",  # Темно-фиолетовый (новый)
+                    "#607e8d",  # Серо-голубой (новый)
+                    "#e75c11b6",# Твой оригинальный выгоревший оранжевый
+                    "#092369",  # Темно-синий (Navy) (новый)
+                ] 
+                                
+                # [
+                #                 "#e74c3c", "#43abf1", "#08e021", "#f1c40f", "#9b59b6",
+                #                 "#f07000", "#1abc9c", "#004d9a", "#e84393", "#e75c11b6"
+                #                 ]
 
                 app_color_map = {}
 
@@ -2173,9 +2203,13 @@ else:
 
                 for slot in booked_slots:
                     app_id = slot.get("application_id", "")
-                    if app_id not in app_color_map:
-                        app_color_map[app_id] = color_palette[len(app_color_map) % len(color_palette)]
-                    slot_color = app_color_map[app_id]
+                    
+                    # Цвет привязывается к ID заявки навсегда.
+                    # ID 1 -> цвет 1, ID 2 -> цвет 2 и т.д. По кругу.
+                    try:
+                        slot_color = color_palette[int(app_id) % len(color_palette)]
+                    except (ValueError, TypeError):
+                        slot_color = color_palette[0]  # Если ID нет или он не число
 
                     is_selected = (selected_booking_uid == slot["booking_uid"])
                     
