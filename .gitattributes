@@ -1,2 +1,70 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+import streamlit as st
+
+def show_about_page(t: dict):
+    """
+    Отображает страницу 'О проекте'.
+    Принимает словарь переводов t.
+    """
+    st.header(t.get("about", "About Project"))
+    
+    st.markdown(f"### {t.get('about_title', 'HR Integration System')}")
+    st.write(t.get('about_desc', 'A full-stack application...'))
+    
+    st.divider()
+    
+    # --- БЛОК: ФИЧИ И ИНТЕГРАЦИИ ---
+    st.subheader(t.get("about_features_title", "Key Features & Integrations"))
+    
+    col_feat1, col_feat2 = st.columns(2)
+    with col_feat1:
+        st.info(t.get("about_feat_i18n", "..."))
+        st.success(t.get("about_feat_email", "..."))
+        
+    with col_feat2:
+        st.warning(t.get("about_feat_demo", "..."))
+        st.info(t.get("about_feat_design", "..."))
+        
+    st.divider()
+
+    # --- БЛОК: АРХИТЕКТУРА И ТЕСТИРОВАНИЕ ---
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader(t.get("about_arch_title", "🛠 Architecture Decisions"))
+        st.markdown("""
+        * **Concurrency (Race Conditions):** Реализована защита от параллельной записи. Оптимистичные блокировки для Email и пессимистичные (глобальный флаг при сбросе базы).
+        * **Timezone Handling:** Строгое разделение: база хранит UTC, фронтенд конвертирует в локальное время.
+        * **Security:** Аутентификация между сервисами по API-ключу (`X-API-Key`).
+        """)
+        
+    with col2:
+        st.subheader(t.get("about_test_title", "🧪 How to Test"))
+        st.markdown("""
+        **1. Проверка блокировок (Race Conditions):**
+        Откройте сайт в двух разных браузерах. Выберите двух разных кандидатов на одну должность и нажмите «Принять» одновременно. Второй пользователь получит предупреждение.
+        
+        **2. Монопольный режим (503):**
+        Нажмите «Сбросить демо-данные» в одном окне. Пока идет загрузка, попробуйте нанять кандидата во втором окне — сработает защита.
+        
+        **3. Интернационализация:**
+        Переключите язык в шапке сайта, и интерфейс полностью переведется.
+        """)
+        
+    st.divider()
+    
+    # --- БЛОК: ТЕХНОЛОГИЧЕСКИЙ СТЕК ---
+    st.subheader("💻 Технологический стек")
+    
+    st.markdown("""
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <span style="background: #e3f2fd; padding: 5px 10px; border-radius: 5px; color: #0d47a1; font-weight: bold;">FastAPI</span>
+        <span style="background: #e8f5e9; padding: 5px 10px; border-radius: 5px; color: #1b5e20; font-weight: bold;">Streamlit</span>
+        <span style="background: #fff3e0; padding: 5px 10px; border-radius: 5px; color: #e65100; font-weight: bold;">SQLAlchemy</span>
+        <span style="background: #f3e5f5; padding: 5px 10px; border-radius: 5px; color: #4a148c; font-weight: bold;">Pydantic</span>
+        <span style="background: #ffebee; padding: 5px 10px; border-radius: 5px; color: #b71c1c; font-weight: bold;">Cal.com API</span>
+        <span style="background: #eceff1; padding: 5px 10px; border-radius: 5px; color: #263238; font-weight: bold;">Vercel</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+    st.caption("Developed as a portfolio project for System Analyst role. 2026.")

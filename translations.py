@@ -182,7 +182,41 @@ TEXTS = {
         "application_not_found":
             "Application not found. The database may have been updated.",
         "position_exists":                   "A position with this name already exists.",
-        "in_progress":                       ""
+        "in_progress":                       "",
+
+
+        # About
+
+        "about":                    "About Project",
+        "about_title":              "HR Integration System",
+        "about_desc":               "A full-stack application for hiring automation, demonstrating HR workflows, calendar integration, and robust concurrency handling.",
+        "about_features_title":     "Key features and integrations",
+        "about_ai_mention": 
+"**Pair Programming with AI:** The project was designed and developed using an AI assistant (LLM). Architecture, business logic, and code reviews were driven by the author.",
+        "about_feat_i18n": 
+"🌍 **Multilingual support and Time Zones**\nAutomatic detection of the user's browser language and time zone. End-to-end conversion logic: the database stores UTC, while the interface displays local time.",
+        "about_feat_email": 
+"✉️ **Email integrations**\nAutomatic email sending (Gmail SMTP) when an application status changes: congratulations to candidates and notifications to the HR department.",
+        "about_feat_demo": 
+"⚡ **Smart Demo Mode**\nOne-click demo data generation with automatic booking creation in Cal.com. Includes avoiding busy slots and splitting long meetings into 30-minute intervals.",
+        "about_feat_design": 
+"🎨 **UX and Security**\nAutomatic language detection, smart field validation with clickable elements (for copying), and API protection with secret keys.",
+        "about_arch_title": "🛠 Architecture Decisions",
+        "about_test_title": "🧪 How to Test",
+
+        "about_arch_text": """* **Concurrency (Race Conditions):** Implemented protection against parallel writes. Optimistic locking for Email and pessimistic (global flag on DB reset).
+* **Timezone Handling:** Strict separation: DB stores UTC, frontend converts to local browser time.
+* **Security:** Service-to-service authentication via API key (`X-API-Key`).""",
+
+        "about_test_text": """**1. Race Conditions Testing:**
+Open the site in two different browsers. Select two different candidates for the same position and click «Hire» simultaneously. The second user will receive a warning.
+
+**2. Monopoly Mode (503):**
+Click «Reset demo data» in one window. While it is loading, try to hire a candidate in the second window — the protection will trigger.
+
+**3. Internationalization:**
+Switch the language in the header, and the interface will be fully translated.""",
+
     },
 
     "ru": {
@@ -364,6 +398,41 @@ TEXTS = {
         "application_not_found":
             "Заявка не найдена. Возможно, база данных была обновлена.",
         "position_exists":                   "Должность с таким названием уже существует.",
-        "in_progress":                       "Пожалуйста подождите..."
+        "in_progress":                       "Пожалуйста подождите...",
+
+        # About
+
+        "about":                    "О проекте",
+        "about_title":              "HR Integration System",
+        "about_desc":               "Full-stack приложение для автоматизации найма, демонстрирующее бизнес-процессы HR, интеграцию с календарем и надежную обработку конкурентного доступа.",
+        "about_features_title":     "Ключевые фичи и интеграции",
+
+        "about_ai_mention": 
+"**Разработка в паре с AI-ассистентом:** Проект спроектирован и написан с использованием AI (LLM) в качестве парного программиста. Задачи по архитектуре, бизнес-логике и код-ревью решались автором.",        
+        "about_feat_i18n": 
+"🌍 **Мультиязычность и Часовые пояса**\nАвтоопределение языка и часового пояса браузера пользователя. Логика сквозной конвертации: база данных хранит UTC, а интерфейс показывает локальное время.",
+        "about_feat_email": 
+"✉️ **Почтовые интеграции**\nАвтоматическая отправка писем (Gmail SMTP) при смене статуса заявки: поздравления кандидатам и уведомления отделу кадров.",
+        "about_feat_demo":
+"⚡ **Умный Demo Mode**\nГенерация демо-данных в один клик с автоматическим созданием броней в Cal.com. Включает обход занятых слотов и нарезку длинных встреч на 30-минутные интервалы.",
+        "about_feat_design": 
+"🎨 **UX и Безопасность**\nАвтоопределение языка, умная валидация полей с кликабельными элементами (для копирования), защита API секретными ключами.",
+        "about_arch_title":         "🛠 Архитектурные решения",
+        "about_test_title":         "🧪 Как протестировать",
+
+
+        "about_arch_text": """* **Concurrency (Race Conditions):** Реализована защита от параллельной записи. Оптимистичные блокировки для Email и пессимистичные (глобальный флаг при сбросе базы).
+* **Timezone Handling:** Строгое разделение: база хранит UTC, фронтенд конвертирует в локальное время.
+* **Security:** Аутентификация между сервисами по API-ключу (`X-API-Key`).""",
+
+        "about_test_text": """**1. Проверка блокировок (Race Conditions):**
+Откройте сайт в двух разных браузерах. Выберите двух разных кандидатов на одну должность и нажмите «Принять» одновременно. Второй пользователь получит предупреждение.
+
+**2. Монопольный режим (503):**
+Нажмите «Сбросить демо-данные» в одном окне. Пока идет загрузка, попробуйте нанять кандидата во втором окне — сработает защита.
+
+**3. Интернационализация:**
+Переключите язык в шапке сайта, и интерфейс полностью переведется.""",        
+
     }
 }

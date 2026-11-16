@@ -15,6 +15,7 @@ import html
 import json
 from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
+from ui_about import show_about_page
 
 import streamlit.components.v1 as components
 from streamlit_calendar import calendar
@@ -276,32 +277,31 @@ st.title(t["title"])
 if "mode" not in st.session_state:
     st.session_state["mode"] = "Candidate"
 
-
 mode_options = {
     "Candidate": t["candidate"],
-    "HR": t["hr"]
+    "HR": t["hr"],
+    "About": t.get("about", "About")
 }
-
 
 selected_mode = st.radio(
     t["mode"],
     list(mode_options.values()),
     index=(
-        0
-        if st.session_state["mode"] == "Candidate"
-        else 1
+        0 if st.session_state["mode"] == "Candidate"
+        else (1 if st.session_state["mode"] == "HR" else 2)
     ),
     horizontal=True
 )
 
-
+# Определяем выбранный режим
 if selected_mode == t["candidate"]:
     st.session_state["mode"] = "Candidate"
-else:
+elif selected_mode == t["hr"]:
     st.session_state["mode"] = "HR"
+else:
+    st.session_state["mode"] = "About"
 
-
-mode = selected_mode
+mode = st.session_state["mode"]
 
 
 # =========================================================
@@ -851,6 +851,13 @@ if mode == t["candidate"]:
                     
     except requests.RequestException as e:
         st.error(f"Could not load bookings: {e}")    
+
+# =========================================================
+# ABOUT
+# =========================================================
+
+elif mode == "About":
+    show_about_page(t)
 
 # =========================================================
 # HR MODE
@@ -2741,3 +2748,4 @@ else:
 
     if st.session_state.pop("demo_loaded_message", False):
         st.success(t["demo_loaded"])
+
