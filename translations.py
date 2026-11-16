@@ -192,7 +192,7 @@ TEXTS = {
         "about_desc":               "A full-stack application for hiring automation, demonstrating HR workflows, calendar integration, and robust concurrency handling.",
         "about_features_title":     "Key features and integrations",
         "about_ai_mention": 
-"**Pair Programming with AI:** The project was designed and developed using an AI assistant (LLM). Architecture, business logic, and code reviews were driven by the author.",
+"**Pair Programmed with AI:** The project was designed and developed using an AI assistant (LLM). Business logic was driven by the author.",
         "about_feat_i18n": 
 "🌍 **Multilingual support and Time Zones**\nAutomatic detection of the user's browser language and time zone. End-to-end conversion logic: the database stores UTC, while the interface displays local time.",
         "about_feat_email": 
@@ -408,7 +408,7 @@ Switch the language in the header, and the interface will be fully translated.""
         "about_features_title":     "Ключевые фичи и интеграции",
 
         "about_ai_mention": 
-"**Разработка в паре с AI-ассистентом:** Проект спроектирован и написан с использованием AI (LLM) в качестве парного программиста. Задачи по архитектуре, бизнес-логике и код-ревью решались автором.",        
+"**Разработано в паре с AI-ассистентом:** Проект спроектирован и написан с использованием AI (LLM) в качестве парного программиста. Задачи по бизнес-логике решались автором.",        
         "about_feat_i18n": 
 "🌍 **Мультиязычность и Часовые пояса**\nАвтоопределение языка и часового пояса браузера пользователя. Логика сквозной конвертации: база данных хранит UTC, а интерфейс показывает локальное время.",
         "about_feat_email": 
