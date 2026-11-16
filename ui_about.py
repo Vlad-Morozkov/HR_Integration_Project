@@ -40,7 +40,7 @@ def show_about_page(t: dict):
     st.divider()
     
     # --- БЛОК: ТЕХНОЛОГИЧЕСКИЙ СТЕК ---
-    st.subheader("💻 Технологический стек")
+    st.subheader(t.get("stack", "💻 Technology stack"))
     
     st.markdown("""
     <div style="display: flex; gap: 10px; flex-wrap: wrap;">

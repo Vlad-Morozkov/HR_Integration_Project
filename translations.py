@@ -204,6 +204,8 @@ TEXTS = {
         "about_arch_title": "🛠 Architecture Decisions",
         "about_test_title": "🧪 How to Test",
 
+        "stack":            "💻 Technology stack",
+
         "about_arch_text": """* **Concurrency (Race Conditions):** Implemented protection against parallel writes. Optimistic locking for Email and pessimistic (global flag on DB reset).
 * **Timezone Handling:** Strict separation: DB stores UTC, frontend converts to local browser time.
 * **Security:** Service-to-service authentication via API key (`X-API-Key`).""",
@@ -420,6 +422,7 @@ Switch the language in the header, and the interface will be fully translated.""
         "about_arch_title":         "🛠 Архитектурные решения",
         "about_test_title":         "🧪 Как протестировать",
 
+        "stack":            "💻 Технологический стек",
 
         "about_arch_text": """* **Concurrency (Race Conditions):** Реализована защита от параллельной записи. Оптимистичные блокировки для Email и пессимистичные (глобальный флаг при сбросе базы).
 * **Timezone Handling:** Строгое разделение: база хранит UTC, фронтенд конвертирует в локальное время.
