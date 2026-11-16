@@ -255,7 +255,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "BSc Computer Science",
                     "experience":   "5 years",
                     "full_name":    "Lana Tyler",
-                    "email":        "aspanseric+lana@gmail.com",
+                    "email":        "vmorozkov94+lana@gmail.com",
                     "birth_date":   date(1990, 5, 15),
                     "status":       "New"
                 },
@@ -265,7 +265,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "MBA",
                     "experience":   "3 years",
                     "full_name":    "Bob Jones",
-                    "email":        "aspanseric+bob@gmail.com",
+                    "email":        "vmorozkov94+bob@gmail.com",
                     "birth_date":   date(1988, 8, 22),
                     "status":       "Hired"
                 },
@@ -275,7 +275,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "BA Psychology",
                     "experience":   "2 years",
                     "full_name":    "Charlie Brown",
-                    "email":        "aspanseric+charlie@gmail.com",
+                    "email":        "vmorozkov94+charlie@gmail.com",
                     "birth_date":   date(1995, 1, 10),
                     "status":       "Canceled"
                 },
@@ -286,7 +286,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "MSc Software Engineering",
                     "experience":   "6 years",
                     "full_name":    "David Miller",
-                    "email":        "aspanseric+david@gmail.com",
+                    "email":        "vmorozkov94+david@gmail.com",
                     "birth_date":   date(1985, 11, 20),
                     "status":       "New"
                 },
@@ -296,7 +296,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":         "BSc Human Resources",
                     "experience":   "4 years",
                     "full_name":    "Eva Green",
-                    "email":        "aspanseric+eva@gmail.com",
+                    "email":        "vmorozkov94+eva@gmail.com",
                     "birth_date":   date(1993, 3, 8),
                     "status":       "New"
                 }
@@ -314,7 +314,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Бакалавр",
                     "experience":  "3 года",
                     "full_name":   "Лисицын Игорь Петрович",
-                    "email":       "aspanseric+LIP94@gmail.com",
+                    "email":       "vmorozkov94+LIP94@gmail.com",
                     "birth_date":  date(1994, 6, 2),
                     "status":      "New"
                 },
@@ -324,7 +324,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Магистр",
                     "experience":  "5 лет",
                     "full_name":   "Иванова Анна Сергеевна",
-                    "email":       "aspanseric+IAA92@gmail.com",
+                    "email":       "vmorozkov94+IAA92@gmail.com",
                     "birth_date":  date(1992, 2, 29),
                     "status":      "Hired"
                 },
@@ -334,7 +334,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Кандидат технических наук",
                     "experience":  "7 лет",
                     "full_name":   "Петров Алексей Дмитриевич",
-                    "email":       "aspanseric+PAD90@gmail.com",
+                    "email":       "vmorozkov94+PAD90@gmail.com",
                     "birth_date":  date(1990, 1, 10),
                     "status":      "Canceled"
                 },
@@ -345,7 +345,7 @@ APPLICATION_DEMO_COLLECTION = {
                     "educ":        "Высшее. Бакалавр",
                     "experience":  "4 года",
                     "full_name":   "Захаров Михаил Олегович",
-                    "email":       "aspanseric+ZHRV@gmail.com",
+                    "email":       "vmorozkov94+ZHRV@gmail.com",
                     "birth_date":  date(1997, 7, 14),
                     "status":      "New"
                 },
@@ -354,8 +354,8 @@ APPLICATION_DEMO_COLLECTION = {
                     "position_id": "Senior Backend Developer",
                     "educ":        "Высшее. Магистр",
                     "experience":  "6 лет",
-                    "full_name":   "Черепанова Мария Петровна",
-                    "email":       "aspanseric+CHMP@gmail.com",
+                    "full_name":   "Семёнова Мария Петровна",
+                    "email":       "vmorozkov94+SMP@gmail.com",
                     "birth_date":  date(1991, 9, 30),
                     "status":      "New"
                 }
