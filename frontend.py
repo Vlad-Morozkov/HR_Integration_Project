@@ -1515,6 +1515,7 @@ else:
 
                     # Стираем объединенное сообщение при смене кандидата
                     st.session_state.pop("current_action_message", None) # <-- ЗАМЕНА
+                    st.session_state.pop("ignore_next_calendar_callback", None)
 
                 # ---------------------------
 
@@ -1604,19 +1605,14 @@ else:
                         )
                     )
 
-                # FIX 3: Предупреждение о занятой позиции — ПРЯМО ПОД КНОПКАМИ,
-                # выше календаря. НЕ сбрасываем show_hire_warning внутри блока —
-                # только по явному выбору пользователя. Так предупреждение
-                # остаётся при любых перерисовках (свернуть календарь, сменить
-                # фильтр и т.п.).
+                # Предупреждение о занятой позиции — ПРЯМО ПОД КНОПКАМИ.
+                # Само сообщение рисуется выше, в блоке «ЕДИНОЕ ОКНО СООБЩЕНИЙ»
+                # (красная плашка position_occupied). Здесь — только кнопки,
+                # чтобы не дублировать жёлтой полоской st.warning.
                 if (
                     st.session_state.get("show_hire_warning")
                     and st.session_state.get("pending_hire_app_id") == selected_application_id
                 ):
-                    st.warning(t.get(
-                        "position_occupied_warning",
-                        "Позиция уже занята. Кандидата можно принять, но нужно проверить количество ставок."
-                    ))
                     col_yes, col_no = st.columns(2)
                     with col_yes:
                         if st.button(
@@ -1626,11 +1622,15 @@ else:
                             st.session_state["force_hire_clicked"] = True
                             st.session_state["show_hire_warning"] = False
                             st.session_state.pop("pending_hire_app_id", None)
+                            st.session_state.pop("current_action_message", None)        # ← ДОБАВИТЬ
+                            st.session_state.pop("current_action_message_type", None)   # ← ДОБАВИТЬ
                             st.rerun()
                     with col_no:
                         if st.button(t.get("cancel", "Отмена")):
                             st.session_state["show_hire_warning"] = False
                             st.session_state.pop("pending_hire_app_id", None)
+                            st.session_state.pop("current_action_message", None)        # ← НОВОЕ
+                            st.session_state.pop("current_action_message_type", None)   # ← НОВОЕ
                             st.rerun()
 
                 # NEW: промпт «уже принят на другую должность»
@@ -1673,6 +1673,8 @@ else:
                             st.session_state["show_same_email_hire_warning"] = False
                             st.session_state.pop("pending_same_email_app_id", None)
                             st.session_state.pop("pending_same_email_info", None)
+                            st.session_state.pop("current_action_message", None)        # ← ДОБАВИТЬ
+                            st.session_state.pop("current_action_message_type", None)   # ← ДОБАВИТЬ
                             st.rerun()
                     with col_no:
                         if st.button(
@@ -1704,39 +1706,38 @@ else:
             if st.session_state.get("current_action_message"):
                 _msg_type = st.session_state.get("current_action_message_type", "success")
                 _msg_text = st.session_state["current_action_message"]
-                
+
                 if _msg_type == "success":
                     if isinstance(_msg_text, dict) and _msg_text.get("type") == "success":
-                        # Берем текст из словаря в момент отрисовки
                         st.success(t.get(_msg_text["key"], "Done"))
                     else:
                         st.success(_msg_text)
-                    
+
                 elif _msg_type == "error":
+                    # ---------- красная: invalid_email / email_conflict (как было) ----------
                     if isinstance(_msg_text, dict) and _msg_text.get("type") in ["invalid_email", "email_conflict"]:
                         _name = _msg_text["name"]
                         _pos = _msg_text["position"]
-                        
-                        # Текст берем из словаря TEXTS в момент рендеринга
+
                         if _msg_text.get("type") == "email_conflict":
                             _err = t["email_conflict_message"]
                         else:
                             _err = t["invalid_email"]
-                            
+
                         _tpl = t.get("invalid_email_for_candidate", "For {name} ({position}) {error_text}")
                         _hint = t.get("click_value_to_copy", "Click value to copy")
-                        
+
                         _html_msg = _tpl.replace(
-                            "{name}", 
+                            "{name}",
                             f'<span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>'
                         ).replace(
-                            "{position}", 
+                            "{position}",
                             f'<span class="copy-txt" data-copy="{html.escape(_pos)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_pos)}</span>'
                         ).replace(
-                            "{error_text}", 
+                            "{error_text}",
                             html.escape(_err)
                         )
-                        
+
                         _html = f"""
                         <div style="background-color: #ffebee; color: #c62828; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ef9a9a; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
                             <div style="margin-bottom: 0.4rem;">{_html_msg}</div>
@@ -1751,19 +1752,77 @@ else:
                         </script>
                         """
                         components.html(_html, height=110)
+
+                    # ---------- НОВОЕ красное: позиция занята (фронт-проверка) ----------
+                    elif isinstance(_msg_text, dict) and _msg_text.get("type") == "position_occupied":
+                        _name = _msg_text["name"]
+                        _pos = _msg_text["position"]
+                        _hint = t.get("click_value_to_copy", "Click value to copy")
+                        _text = t["position_occupied_warning"]   # ← используем существующий ключ
+
+                        _html = f"""
+                        <div style="background-color: #ffebee; color: #c62828; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ef9a9a; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
+                            <div style="margin-bottom: 0.4rem;">
+                                <span style="font-weight: 700;"> </span> {_text}
+                            </div>
+                            <div style="font-size: 14px; opacity: 0.85;">
+                                <span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>
+                                —
+                                <span class="copy-txt" data-copy="{html.escape(_pos)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_pos)}</span>
+                            </div>
+                        </div>
+                        <script>
+                            document.querySelectorAll('.copy-txt').forEach(function(el) {{
+                                el.addEventListener('click', function() {{
+                                    navigator.clipboard.writeText(this.getAttribute('data-copy'));
+                                }});
+                            }});
+                        </script>
+                        """
+                        components.html(_html, height=110)
+
+                    # ---------- всё остальное — обычный st.error ----------
                     else:
                         st.error(_msg_text)
-                        
+
                 elif _msg_type == "warning" and isinstance(_msg_text, dict) and _msg_text.get("type") == "position_occupied":
-                    # Вывод предупреждения о занятой позиции
+                    # ---------- жёлтая fallback: раньше сюда попадала и фронт-, и сервер-проверка ----------
+                    # По новой логике сюда практически не попадаем — оставлено для совместимости.
                     _name = _msg_text["name"]
                     _pos = _msg_text["position"]
                     _hint = t.get("click_value_to_copy", "Click value to copy")
-                    
+
                     _html = f"""
                     <div style="background-color: #fff3cd; color: #664d03; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ffe69c; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
                         <div style="margin-bottom: 0.4rem;">
-                            <span style="font-weight: 700;">⚠️</span> {t["position_occupied_conflict"]}
+                            {t["position_occupied_conflict"]}
+                        </div>
+                        <div style="font-size: 14px; opacity: 0.85;">
+                            <span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>
+                            —
+                            <span class="copy-txt" data-copy="{html.escape(_pos)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_pos)}</span>
+                        </div>
+                    </div>
+                    <script>
+                        document.querySelectorAll('.copy-txt').forEach(function(el) {{
+                            el.addEventListener('click', function() {{
+                                navigator.clipboard.writeText(this.getAttribute('data-copy'));
+                            }});
+                        }});
+                    </script>
+                    """
+                    components.html(_html, height=110)
+
+                # ---------- НОВОЕ жёлтое: гонка (сервер-проверка) ----------
+                elif _msg_type == "warning" and isinstance(_msg_text, dict) and _msg_text.get("type") == "position_race_condition":
+                    _name = _msg_text["name"]
+                    _pos = _msg_text["position"]
+                    _hint = t.get("click_value_to_copy", "Click value to copy")
+
+                    _html = f"""
+                    <div style="background-color: #fff3cd; color: #664d03; padding: 0.9rem 1rem; border-radius: 0.5rem; border: 1px solid #ffe69c; font-family: 'Source Sans Pro', sans-serif; font-size: 16px; line-height: 1.5;">
+                        <div style="margin-bottom: 0.4rem;">
+                            {t["position_occupied_conflict"]}
                         </div>
                         <div style="font-size: 14px; opacity: 0.85;">
                             <span class="copy-txt" data-copy="{html.escape(_name)}" style="color: #0d6efd; text-decoration: underline; cursor: pointer; font-weight: 600;" title="{html.escape(_hint)}">{html.escape(_name)}</span>
@@ -1848,11 +1907,19 @@ else:
                 # Функции-коллбеки для кнопок
                 def _cancel_all_bookings():
                     for b in bookings_list:
-                        requests.post(
-                            f"{API_URL}/api/interviews/{b['booking_uid']}/cancel",
-                            headers=HEADERS,  # <--- ДОБАВИТЬ
-                            timeout=10
-                        )
+                        try:
+                            requests.post(
+                                f"{API_URL}/api/interviews/{b['booking_uid']}/cancel",
+                                headers=HEADERS,
+                                timeout=10
+                            )
+                        except Exception:
+                            pass  # одна упавшая бронь не должна блокировать остальные
+
+                    # Сбрасываем кэш, иначе календарь нарисует уже отменённые брони
+                    load_booked_slots.clear()
+                    load_all_applications.clear()
+
                     del st.session_state["bookings_to_cancel"]
                     st.session_state["calendar_version"] += 1
                     st.session_state["hired_cancelled_msg"] = True
@@ -1896,7 +1963,9 @@ else:
                     st.session_state.pop("selected_booking_start", None)
                     st.session_state.pop("selected_booking_end", None)
                     st.session_state.pop("selected_booking_name", None)
-                    
+                
+                st.session_state.pop("ignore_next_calendar_callback", None)
+
                 # Убиваем кэш календаря, чтобы он не вернул старый dateClick
                 st.session_state["calendar_version"] += 1
 
@@ -2369,7 +2438,6 @@ else:
                     st.session_state.pop("booking_end", None)
                     st.session_state["interview_ready_message"] = True
                     st.session_state["calendar_version"] += 1
-                    st.session_state["ignore_next_calendar_callback"] = True                     
                     st.rerun()
 
             # ----- Reject -----
@@ -2425,7 +2493,7 @@ else:
                             "name": selected_application["full_name"],
                             "position": selected_application["position_name"],
                         }
-                        st.session_state["current_action_message_type"] = "warning"
+                        st.session_state["current_action_message_type"] = "error"   # КРАСНОЕ сообщение
                         st.rerun()
 
                     # Проверка 2: тот же email уже нанят на другую должность?
@@ -2441,13 +2509,14 @@ else:
                         
                 # Сам процесс найма
                 try:
-                    api.update_status(
-                        app_id=selected_application_id,
-                        status="Hired",
-                        email=edited_email,
-                        support_email=support_email,
-                        force=force_hire
-                    )
+                    with st.spinner(t.get("in_progress", "Please wait...")):
+                        api.update_status(
+                            app_id=selected_application_id,
+                            status="Hired",
+                            email=edited_email,
+                            support_email=support_email,
+                            force=force_hire
+                        )
                     load_all_applications.clear()
                     load_positions.clear()
                     st.session_state["application_hired_message"] = True
@@ -2455,16 +2524,24 @@ else:
                     st.rerun()
                 except ApiConflictError as e:
                     if e.code == "POSITION_OCCUPIED":
-                        st.session_state["pending_hire_app_id"] = selected_application_id
-                        st.session_state["show_hire_warning"] = True
-                        
-                        # Передаем словарь для красивого вывода с кликабельными полями
-                        st.session_state["current_action_message"] = {
-                            "type": "position_occupied",
-                            "name": selected_application["full_name"],
-                            "position": selected_application["position_name"],
-                        }
-                        st.session_state["current_action_message_type"] = "warning"
+                        if force_hire:
+                            # Пользователь уже нажал "Принять всё равно", но сервер всё равно отказал.
+                            # Это не race — это неожиданный отказ сервера. Красная ошибка, без кнопок.
+                            st.session_state["current_action_message"] = (
+                                e.detail or t["position_occupied_warning"]
+                            )
+                            st.session_state["current_action_message_type"] = "error"
+                        else:
+                            # ГОНКА: фронт считал позицию свободной, а другой HR успел первым.
+                            # Жёлтая плашка без кнопок; сбрасываем кэш позиций, чтобы
+                            # следующий клик уже увидел is_free=False и ушёл в красный сценарий.
+                            load_positions.clear()
+                            st.session_state["current_action_message"] = {
+                                "type": "position_race_condition",
+                                "name": selected_application["full_name"],
+                                "position": selected_application["position_name"],
+                            }
+                            st.session_state["current_action_message_type"] = "warning"
                     else:
                         st.session_state["current_action_message"] = e.detail
                         st.session_state["current_action_message_type"] = "error"
