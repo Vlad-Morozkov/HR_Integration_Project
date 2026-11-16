@@ -1521,6 +1521,16 @@ def generate_demo_interviews(db: Session, applications: list, tz_offset: float =
         # Переводим локальное время в UTC
         utc_hour = local_hour - int(tz_offset)
         start_dt = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=utc_hour, minutes=local_minute)
+        
+        # --- ИСПРАВЛЕНИЕ ОШИБКИ 400 (Attempting to book a meeting in the past) ---
+        # Если расчетное время (в UTC) уже прошло, мы сдвигаем этот слот на следующий день
+        while start_dt < datetime.utcnow():
+            target_date += timedelta(days=1)
+            while target_date.weekday() >= 5:  # Снова пропускаем выходные
+                target_date += timedelta(days=1)
+            start_dt = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=utc_hour, minutes=local_minute)
+        # ------------------------------------------------------------------------
+
         end_dt = start_dt + timedelta(minutes=duration)
 
         # Получаем нужного кандидата по индексу
